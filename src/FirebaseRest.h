@@ -127,9 +127,44 @@ public:
     return true;
   }
 
+  bool putStatus(const char* gatewayId,
+                 uint32_t lastSeen,
+                 uint16_t bufferSize,
+                 const char* fwVersion,
+                 const char* ip,
+                 int32_t wifiRssi,
+                 uint16_t lastBatchCount,
+                 uint32_t lastBatchTs) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/status.json?auth=" + idToken_;
+
+    String json = "{";
+    json += "\"last_seen\":" + String(lastSeen) + ",";
+    json += "\"buffer_size\":" + String(bufferSize) + ",";
+    json += "\"fw_version\":\"" + String(fwVersion) + "\",";
+    json += "\"ip\":\"" + String(ip) + "\",";
+    json += "\"wifi_rssi\":" + String(wifiRssi) + ",";
+    json += "\"last_batch_count\":" + String(lastBatchCount) + ",";
+    json += "\"last_batch_ts\":" + String(lastBatchTs);
+    json += "}";
+
+    String resp;
+    int code = httpsSendJson_(url, "PUT", json, resp);
+    if (code != 200) {
+      LOGE("Firebase putStatus failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
 private:
-  // POST JSON helper (https)
   int httpsPostJson_(const String& url, const String& payload, String& outResp, const char* /*unused*/) {
+    return httpsSendJson_(url, "POST", payload, outResp);
+  }
+
+  // Send JSON helper (https)
+  int httpsSendJson_(const String& url, const char* method, const String& payload, String& outResp) {
     WiFiClientSecure client;
     if (FIREBASE_TLS_INSECURE) client.setInsecure();
 
@@ -141,7 +176,7 @@ private:
       return -1;
     }
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST((uint8_t*)payload.c_str(), payload.length());
+    int code = http.sendRequest(method, (uint8_t*)payload.c_str(), payload.length());
     outResp = http.getString();
     http.end();
     return code;

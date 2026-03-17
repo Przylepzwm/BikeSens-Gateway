@@ -17,7 +17,10 @@ IMPORTANT:
 1) Fill in Config.h:
    FIREBASE_API_KEY, FIREBASE_EMAIL, FIREBASE_PASSWORD
 
-2) BLE telegram parser in BleScanner.h assumes layout:
+2) Gateway ID is configured from the AP setup page and stored in Preferences.
+   Default value is: gw01
+
+3) BLE telegram parser in BleScanner.h assumes layout:
    [company_id LE(2)][prefix0][prefix1][device_id LE(2)][seq LE(2)][pulses LE(2)][bat(1)]
    If your payload differs, tell me the exact bytes and we adjust only the parser.
 

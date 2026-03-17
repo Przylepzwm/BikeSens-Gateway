@@ -11,6 +11,9 @@ public:
   void begin() {
     prefs_.begin("bsgw", false);
     //prefs_.clear();   //  usuń zapisane WiFi
+    gatewayId_ = prefs_.getString("gateway_id", DEFAULT_GATEWAY_ID);
+    gatewayId_.trim();
+    if (gatewayId_.length() == 0) gatewayId_ = DEFAULT_GATEWAY_ID;
     server_ = new WebServer(80);
   }
 
@@ -27,6 +30,17 @@ public:
   void saveWiFi(const String& ssid, const String& pass) {
     prefs_.putString("ssid", ssid);
     prefs_.putString("pass", pass);
+  }
+
+  void saveGatewayId(const String& gatewayId) {
+    gatewayId_ = gatewayId;
+    gatewayId_.trim();
+    if (gatewayId_.length() == 0) gatewayId_ = DEFAULT_GATEWAY_ID;
+    prefs_.putString("gateway_id", gatewayId_);
+  }
+
+  const char* gatewayId() const {
+    return gatewayId_.c_str();
   }
 
   bool connectSaved(uint32_t timeoutMs) {
@@ -69,6 +83,7 @@ public:
         "<html><body>"
         "<h2>BikeSens Gateway Wi-Fi setup</h2>"
         "<form method='POST' action='/save'>"
+        "Gateway ID:<br><input name='gateway_id' length=32 value='" + gatewayId_ + "'><br>"
         "SSID:<br><input name='ssid' length=32><br>"
         "Password:<br><input name='pass' length=64 type='password'><br><br>"
         "<input type='submit' value='Save & Restart'>"
@@ -78,14 +93,21 @@ public:
     });
 
     server_->on("/save", HTTP_POST, [&](){
+      String gatewayId = server_->arg("gateway_id");
       String ssid = server_->arg("ssid");
       String pass = server_->arg("pass");
+      gatewayId.trim();
       ssid.trim();
       pass.trim();
+      if (gatewayId.length() == 0) {
+        server_->send(400, "text/plain", "Gateway ID required");
+        return;
+      }
       if (ssid.length() == 0) {
         server_->send(400, "text/plain", "SSID required");
         return;
       }
+      saveGatewayId(gatewayId);
       saveWiFi(ssid, pass);
       server_->send(200, "text/plain", "Saved. Restarting...");
       delay(300);
@@ -106,4 +128,5 @@ private:
   Preferences prefs_;
   WebServer* server_{nullptr};
   bool apRunning_{false};
+  String gatewayId_{DEFAULT_GATEWAY_ID};
 };

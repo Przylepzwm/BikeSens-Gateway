@@ -18,8 +18,11 @@ static FirebaseRest fb;
 
 static uint32_t lastRxMs = 0;
 static uint32_t lastReconnectAttemptMs = 0;
+static uint32_t lastStatusPushMs = 0;
 static bool wifiFrozen = false;
 static bool timeSynced = false;
+static uint16_t lastBatchCount = 0;
+static uint32_t lastBatchTs = 0;
 
 static void wifiFreeze() {
   if (WiFi.getMode() == WIFI_OFF) {
@@ -55,6 +58,32 @@ static void ensureWiFiConnected() {
   if (!wifiCfg.hasSavedWiFi()) return;
   LOGW("WiFi disconnected -> reconnect attempt");
   wifiCfg.connectSaved(WIFI_CONNECT_TIMEOUT_MS);
+}
+
+static bool publishStatus(bool force) {
+  if (wifiCfg.isAPRunning()) return false;
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  uint32_t nowMs = millis();
+  if (!force && (nowMs - lastStatusPushMs) < STATUS_INTERVAL_MS) return false;
+
+  String ip = WiFi.localIP().toString();
+  uint32_t lastSeen = TimeSync::nowUtc();
+  bool ok = fb.putStatus(
+    wifiCfg.gatewayId(),
+    lastSeen,
+    buffer.size(),
+    FW_VERSION,
+    ip.c_str(),
+    WiFi.RSSI(),
+    lastBatchCount,
+    lastBatchTs
+  );
+  if (ok) {
+    lastStatusPushMs = nowMs;
+    LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
+  }
+  return ok;
 }
 
 static void trySendIfNeeded() {
@@ -99,9 +128,12 @@ static void trySendIfNeeded() {
   }
 
   uint32_t ts = TimeSync::nowUtc();
-  bool ok = fb.pushBatch(GATEWAY_ID, ts, items, cnt);
+  bool ok = fb.pushBatch(wifiCfg.gatewayId(), ts, items, cnt);
   if (ok) {
     LOGI("Firebase batch OK count=%u remain=%u", cnt, buffer.size());
+    lastBatchCount = cnt;
+    lastBatchTs = ts;
+    publishStatus(true);
   } else {
     // On failure: push back? (would require shifting). Simpler: re-add to buffer end (still no loss, order might change).
     LOGE("Firebase batch FAIL; re-queue to buffer tail");
@@ -157,10 +189,9 @@ static void dailyNtpResyncIfNeeded() {
 
 void setup() {
   Logger::begin();
-  LOGI("BikeSens Gateway boot (%s)", GATEWAY_ID);
-  LOGI("Reset reason: %d", esp_reset_reason());
-
   wifiCfg.begin();
+  LOGI("BikeSens Gateway boot (%s)", wifiCfg.gatewayId());
+  LOGI("Reset reason: %d", esp_reset_reason());
   buffer.begin();
   recent.begin();
   fb.begin();
@@ -230,6 +261,7 @@ void loop() {
   lastBufSize = curSize;
 
   trySendIfNeeded();
+  publishStatus(false);
 
   // Idle CPU a bit
   delay(5);

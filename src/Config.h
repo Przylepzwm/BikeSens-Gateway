@@ -5,7 +5,8 @@
 // =======================
 
 // -------- Identity --------
-#define GATEWAY_ID "gw01"
+static const char* DEFAULT_GATEWAY_ID = "gw01";
+static const char* FW_VERSION = "1.0.0";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git
@@ -40,6 +41,7 @@ static const uint32_t IDLE_TIMEOUT_MS = 5UL * 60UL * 1000UL;
 // -------- Wi-Fi / reconnect / AP --------
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30UL * 1000UL;
 static const uint32_t RECONNECT_INTERVAL_MS = 60UL * 1000UL;
+static const uint32_t STATUS_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static const char* AP_SSID = "BikeSense-Gateway";
 static const char* AP_PASS = "bikesense123";
