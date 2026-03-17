@@ -94,8 +94,7 @@ static void trySendIfNeeded() {
     // Ensure time sync at least once when WiFi is available.
     if (!timeSynced && WiFi.status() == WL_CONNECTED) {
       TimeSync::begin();
-      TimeSync::waitForSync(8000);
-      timeSynced = true;
+      timeSynced = TimeSync::waitForSync(8000);
     }
   }
 
@@ -137,8 +136,7 @@ static void dailyNtpResyncIfNeeded() {
     ble.stop();
     if (wifiThawAndConnect(WIFI_CONNECT_TIMEOUT_MS)) {
       TimeSync::begin();
-      TimeSync::waitForSync(8000);
-      timeSynced = true;
+      timeSynced = TimeSync::waitForSync(8000);
     } else {
       LOGW("NTP resync skipped: WiFi thaw/connect failed");
     }
@@ -180,8 +178,7 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     TimeSync::begin();
-    TimeSync::waitForSync(10000);
-    timeSynced = true;
+    timeSynced = TimeSync::waitForSync(10000);
   }
 
 #if FIREBASE_LOGIN_BEFORE_BLE
@@ -217,8 +214,7 @@ void loop() {
   // If WiFi connected now, ensure time once (best effort)
   if (!timeSynced && WiFi.status() == WL_CONNECTED) {
     TimeSync::begin();
-    TimeSync::waitForSync(8000);
-    timeSynced = true;
+    timeSynced = TimeSync::waitForSync(8000);
   }
 
   // BLE runs in callbacks; we only manage wifi + sending here.
