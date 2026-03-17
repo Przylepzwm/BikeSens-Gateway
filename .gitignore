@@ -1,0 +1,10 @@
+# secrets
+**/LoginData.h
+
+# build
+*.bin
+*.elf
+*.map
+
+# system
+.DS_Store

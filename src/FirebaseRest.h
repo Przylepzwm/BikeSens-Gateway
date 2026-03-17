@@ -1,0 +1,193 @@
+#pragma once
+#include <Arduino.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include "Config.h"
+#include "Logger.h"
+#include "GatewayTypes.h"
+
+class FirebaseRest {
+public:
+  void begin() {
+    // nothing
+  }
+
+  bool login() {
+    // Identity Toolkit: signInWithPassword
+    // POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=[API_KEY]
+    String url = String("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=") + FIREBASE_API_KEY;
+
+    String payload =
+      String("{\"email\":\"") + FIREBASE_EMAIL +
+      "\",\"password\":\"" + FIREBASE_PASSWORD +
+      "\",\"returnSecureToken\":true}";
+
+    String resp;
+    int code = httpsPostJson_(url, payload, resp, /*auth*/nullptr);
+    if (code != 200) {
+      LOGE("Firebase login failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    // Parse minimal JSON without dynamic libs (simple regex-ish).
+    // Expect: "idToken":"...","refreshToken":"...","expiresIn":"3600"
+    idToken_ = extractJsonString_(resp, "idToken");
+    refreshToken_ = extractJsonString_(resp, "refreshToken");
+    String exp = extractJsonString_(resp, "expiresIn");
+
+    if (idToken_.length() == 0 || refreshToken_.length() == 0) {
+      LOGE("Firebase login parse error");
+      return false;
+    }
+
+    uint32_t expiresIn = exp.length() ? (uint32_t)exp.toInt() : 3600;
+    tokenExpiryMs_ = millis() + (expiresIn * 1000UL) - 30000UL; // refresh 30s early
+    LOGI("Firebase login OK (expiresIn=%lu)", (unsigned long)expiresIn);
+    return true;
+  }
+
+  bool ensureTokenValid() {
+    if (idToken_.length() == 0 || refreshToken_.length() == 0) return login();
+    if ((int32_t)(millis() - tokenExpiryMs_) < 0) return true; // still valid
+    return refresh();
+  }
+
+  bool refresh() {
+    // Secure Token API
+    // POST https://securetoken.googleapis.com/v1/token?key=[API_KEY]
+    // Content-Type: application/x-www-form-urlencoded
+    String url = String("https://securetoken.googleapis.com/v1/token?key=") + FIREBASE_API_KEY;
+    String body = String("grant_type=refresh_token&refresh_token=") + urlEncode_(refreshToken_);
+
+    WiFiClientSecure client;
+    if (FIREBASE_TLS_INSECURE) client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(FIREBASE_HTTP_TIMEOUT_MS);
+    if (!http.begin(client, url)) {
+      LOGE("Token refresh begin failed");
+      return false;
+    }
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST((uint8_t*)body.c_str(), body.length());
+    String resp = http.getString();
+    http.end();
+
+    if (code != 200) {
+      LOGE("Token refresh failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    // Response includes: "id_token", "refresh_token", "expires_in"
+    String newId = extractJsonString_(resp, "id_token");
+    String newRef = extractJsonString_(resp, "refresh_token");
+    String exp = extractJsonString_(resp, "expires_in");
+
+    if (newId.length()) idToken_ = newId;
+    if (newRef.length()) refreshToken_ = newRef;
+
+    uint32_t expiresIn = exp.length() ? (uint32_t)exp.toInt() : 3600;
+    tokenExpiryMs_ = millis() + (expiresIn * 1000UL) - 30000UL;
+
+    LOGI("Firebase token refreshed (expiresIn=%lu)", (unsigned long)expiresIn);
+    return true;
+  }
+
+  // Push one batch as a single write (POST -> pushId).
+  bool pushBatch(const char* gatewayId, uint32_t gatewayTs, const BleRecord* items, uint16_t count) {
+    if (!ensureTokenValid()) return false;
+
+    // POST https://<db>/gateways/<gw>/batches.json?auth=<idToken>
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/batches.json?auth=" + idToken_;
+
+    // Build JSON (no dynamic allocations besides String).
+    String json = "{";
+    json += "\"gateway_id\":\"" + String(gatewayId) + "\",";
+    json += "\"gateway_ts\":" + String(gatewayTs) + ",";
+    json += "\"count\":" + String(count) + ",";
+    json += "\"items\":[";
+    for (uint16_t i = 0; i < count; i++) {
+      if (i) json += ",";
+      json += "{";
+      json += "\"rx_ts\":" + String(items[i].rx_ts) + ",";
+      json += "\"device_id\":" + String(items[i].device_id) + ",";
+      json += "\"seq\":" + String(items[i].seq) + ",";
+      json += "\"pulses\":" + String(items[i].pulses) + ",";
+      json += "\"bat\":" + String(items[i].bat);
+      json += "}";
+    }
+    json += "]}";
+
+    String resp;
+    int code = httpsPostJson_(url, json, resp, /*auth*/nullptr);
+    if (code != 200) {
+      LOGE("Firebase pushBatch failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
+private:
+  // POST JSON helper (https)
+  int httpsPostJson_(const String& url, const String& payload, String& outResp, const char* /*unused*/) {
+    WiFiClientSecure client;
+    if (FIREBASE_TLS_INSECURE) client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(FIREBASE_HTTP_TIMEOUT_MS);
+    if (!http.begin(client, url)) {
+      LOGE("HTTP begin failed");
+      outResp = "";
+      return -1;
+    }
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST((uint8_t*)payload.c_str(), payload.length());
+    outResp = http.getString();
+    http.end();
+    return code;
+  }
+
+  // Very small JSON string extractor: finds "key":"value"
+  String extractJsonString_(const String& json, const char* key) {
+    String needle = String("\"") + key + "\":";
+    int pos = json.indexOf(needle);
+    if (pos < 0) return "";
+    pos += needle.length();
+    // skip spaces
+    while (pos < (int)json.length() && (json[pos] == ' ')) pos++;
+    if (pos >= (int)json.length()) return "";
+
+    // if quoted
+    if (json[pos] == '"') {
+      pos++;
+      int end = json.indexOf('"', pos);
+      if (end < 0) return "";
+      return json.substring(pos, end);
+    }
+
+    // unquoted value until comma/brace
+    int end = pos;
+    while (end < (int)json.length() && json[end] != ',' && json[end] != '}' && json[end] != ' ') end++;
+    return json.substring(pos, end);
+  }
+
+  String urlEncode_(const String& s) {
+    String o;
+    const char* hex = "0123456789ABCDEF";
+    for (size_t i = 0; i < s.length(); i++) {
+      char c = s[i];
+      if (isalnum((unsigned char)c) || c=='-' || c=='_' || c=='.' || c=='~') {
+        o += c;
+      } else {
+        o += '%';
+        o += hex[(c >> 4) & 0xF];
+        o += hex[c & 0xF];
+      }
+    }
+    return o;
+  }
+
+  String idToken_;
+  String refreshToken_;
+  uint32_t tokenExpiryMs_{0};
+};
