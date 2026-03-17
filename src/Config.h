@@ -27,6 +27,8 @@
 #define BLE_COMPANY_ID 0xBAFF
 #define BLE_PREFIX0 0xB1
 #define BLE_PREFIX1 0x6B
+// 0: passive scan, 1: active scan
+#define BLE_ACTIVE_SCAN 0
 
 // -------- Buffer & batching --------
 static const uint16_t BUFFER_MAX = 400;
@@ -63,4 +65,3 @@ static constexpr uint16_t RECENT_KEYS_MAX = 512; // must be power-of-two? (no, b
 static const long GMT_OFFSET_SEC = 0;
 static const int  DST_OFFSET_SEC = 0;
 static const char* NTP_SERVER = "pool.ntp.org";
-

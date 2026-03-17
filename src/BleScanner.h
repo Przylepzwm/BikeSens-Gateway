@@ -20,7 +20,7 @@ public:
     scan_ = NimBLEDevice::getScan();
     scan_->setScanCallbacks(this, false);
 
-    scan_->setActiveScan(true);
+    scan_->setActiveScan(BLE_ACTIVE_SCAN);
     scan_->setInterval(160);
     scan_->setWindow(160);
 

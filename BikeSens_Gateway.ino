@@ -146,8 +146,7 @@ static void dailyNtpResyncIfNeeded() {
     // BLE+WiFi mode
     if (WiFi.status() == WL_CONNECTED) {
       TimeSync::begin();
-      TimeSync::waitForSync(8000);
-      timeSynced = true;
+      timeSynced = TimeSync::waitForSync(8000);
     } else {
       LOGW("NTP resync skipped: WiFi not connected");
     }
