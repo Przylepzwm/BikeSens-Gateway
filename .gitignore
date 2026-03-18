@@ -2,9 +2,14 @@
 **/LoginData.h
 
 # build
+build/
 *.bin
 *.elf
 *.map
+
+build.options.json
+flash_args
+sdkconfig
 
 # system
 .DS_Store

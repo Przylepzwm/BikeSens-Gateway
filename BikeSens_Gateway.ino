@@ -1,5 +1,9 @@
 #include <Arduino.h>
+#include <HTTPClient.h>
+#include <Update.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 
 #include "src/Config.h"
 #include "src/Logger.h"
@@ -18,11 +22,20 @@ static FirebaseRest fb;
 
 static uint32_t lastRxMs = 0;
 static uint32_t lastReconnectAttemptMs = 0;
-static uint32_t lastStatusPushMs = 0;
+static uint32_t lastSyncMs = 0;
 static bool wifiFrozen = false;
 static bool timeSynced = false;
 static uint16_t lastBatchCount = 0;
 static uint32_t lastBatchTs = 0;
+static bool lastUpdatePending = false;
+static String lastUpdateVersion;
+static bool lastUpdateAllowed = false;
+static String currentUpdateVersion;
+static String currentUpdateUrl;
+static String currentUpdateSha256;
+static bool currentUpdateForce = false;
+static uint32_t lastOtaAttemptMs = 0;
+static String lastOtaAttemptVersion;
 
 static void wifiFreeze() {
   if (WiFi.getMode() == WIFI_OFF) {
@@ -60,16 +73,169 @@ static void ensureWiFiConnected() {
   wifiCfg.connectSaved(WIFI_CONNECT_TIMEOUT_MS);
 }
 
-static bool publishStatus(bool force) {
+static bool hasHttpScheme(const String& url) {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+static bool performOtaFromUrl(const String& url) {
+  HTTPClient http;
+  http.setTimeout(FIREBASE_HTTP_TIMEOUT_MS);
+
+  int code = -1;
+  int contentLength = -1;
+
+  if (url.startsWith("https://")) {
+    WiFiClientSecure client;
+    if (FIREBASE_TLS_INSECURE) client.setInsecure();
+    if (!http.begin(client, url)) {
+      LOGE("OTA HTTP begin failed");
+      return false;
+    }
+    code = http.GET();
+    contentLength = http.getSize();
+    if (code != 200) {
+      LOGE("OTA HTTP GET failed: code=%d", code);
+      http.end();
+      return false;
+    }
+    if (!Update.begin(contentLength > 0 ? (size_t)contentLength : UPDATE_SIZE_UNKNOWN)) {
+      LOGE("OTA begin failed: err=%u", Update.getError());
+      http.end();
+      return false;
+    }
+    WiFiClient* stream = http.getStreamPtr();
+    size_t written = Update.writeStream(*stream);
+    bool finished = Update.end();
+    http.end();
+    if (!finished || !Update.isFinished()) {
+      LOGE("OTA end failed: err=%u", Update.getError());
+      return false;
+    }
+    if (contentLength > 0 && written != (size_t)contentLength) {
+      LOGE("OTA size mismatch: written=%u expected=%d", (unsigned)written, contentLength);
+      return false;
+    }
+    return true;
+  }
+
+  if (url.startsWith("http://")) {
+    WiFiClient client;
+    if (!http.begin(client, url)) {
+      LOGE("OTA HTTP begin failed");
+      return false;
+    }
+    code = http.GET();
+    contentLength = http.getSize();
+    if (code != 200) {
+      LOGE("OTA HTTP GET failed: code=%d", code);
+      http.end();
+      return false;
+    }
+    if (!Update.begin(contentLength > 0 ? (size_t)contentLength : UPDATE_SIZE_UNKNOWN)) {
+      LOGE("OTA begin failed: err=%u", Update.getError());
+      http.end();
+      return false;
+    }
+    WiFiClient* stream = http.getStreamPtr();
+    size_t written = Update.writeStream(*stream);
+    bool finished = Update.end();
+    http.end();
+    if (!finished || !Update.isFinished()) {
+      LOGE("OTA end failed: err=%u", Update.getError());
+      return false;
+    }
+    if (contentLength > 0 && written != (size_t)contentLength) {
+      LOGE("OTA size mismatch: written=%u expected=%d", (unsigned)written, contentLength);
+      return false;
+    }
+    return true;
+  }
+
+  LOGE("OTA URL must start with http:// or https://");
+  return false;
+}
+
+static void tryRunOtaIfAllowed() {
+  if (!lastUpdatePending || !lastUpdateAllowed) return;
+  if (currentUpdateVersion.length() == 0) {
+    LOGE("OTA skipped: empty version");
+    return;
+  }
+  if (currentUpdateVersion == FW_VERSION) return;
+  if (!hasHttpScheme(currentUpdateUrl)) {
+    LOGE("OTA skipped: invalid url=%s", currentUpdateUrl.c_str());
+    return;
+  }
+
+  uint32_t nowMs = millis();
+  if (lastOtaAttemptVersion == currentUpdateVersion &&
+      (nowMs - lastOtaAttemptMs) < OTA_RETRY_INTERVAL_MS) {
+    return;
+  }
+
+  lastOtaAttemptMs = nowMs;
+  lastOtaAttemptVersion = currentUpdateVersion;
+
+  LOGW("OTA start version=%s", currentUpdateVersion.c_str());
+  ble.stop();
+
+  bool ok = performOtaFromUrl(currentUpdateUrl);
+  if (ok) {
+    LOGW("OTA success, restarting");
+    delay(300);
+    ESP.restart();
+    return;
+  }
+
+  LOGE("OTA failed, BLE resumed");
+  ble.start();
+}
+
+static bool pollUpdateControl() {
+  FirebaseRest::UpdateControl ctrl;
+  bool ok = fb.getUpdateControl(wifiCfg.gatewayId(), ctrl);
+  if (!ok) return false;
+
+  if (ctrl.pending) {
+    bool allowed = (buffer.size() == 0);
+    bool changed = (!lastUpdatePending) || (ctrl.version != lastUpdateVersion);
+    if (changed) {
+      LOGW("OTA pending version=%s force=%d url=%s",
+           ctrl.version.c_str(),
+           ctrl.force ? 1 : 0,
+           ctrl.url.c_str());
+    }
+    if (allowed && !lastUpdateAllowed) {
+      LOGW("OTA allowed version=%s", ctrl.version.c_str());
+    }
+    if (!allowed && (!lastUpdatePending || lastUpdateAllowed || changed)) {
+      LOGI("OTA waiting buffer=%u", buffer.size());
+    }
+    lastUpdateAllowed = allowed;
+  } else if (lastUpdatePending) {
+    LOGI("OTA cleared");
+    lastUpdateAllowed = false;
+  }
+
+  lastUpdatePending = ctrl.pending;
+  lastUpdateVersion = ctrl.version;
+  currentUpdateVersion = ctrl.version;
+  currentUpdateUrl = ctrl.url;
+  currentUpdateSha256 = ctrl.sha256;
+  currentUpdateForce = ctrl.force;
+  return true;
+}
+
+static bool syncFirebaseMaintenance(bool force) {
   if (wifiCfg.isAPRunning()) return false;
   if (WiFi.status() != WL_CONNECTED) return false;
 
   uint32_t nowMs = millis();
-  if (!force && (nowMs - lastStatusPushMs) < STATUS_INTERVAL_MS) return false;
+  if (!force && (nowMs - lastSyncMs) < STATUS_INTERVAL_MS) return false;
 
   String ip = WiFi.localIP().toString();
   uint32_t lastSeen = TimeSync::nowUtc();
-  bool ok = fb.putStatus(
+  bool statusOk = fb.putStatus(
     wifiCfg.gatewayId(),
     lastSeen,
     buffer.size(),
@@ -79,11 +245,16 @@ static bool publishStatus(bool force) {
     lastBatchCount,
     lastBatchTs
   );
-  if (ok) {
-    lastStatusPushMs = nowMs;
+  if (statusOk) {
     LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
   }
-  return ok;
+  bool controlOk = pollUpdateControl();
+  if (statusOk && controlOk) {
+    lastSyncMs = nowMs;
+    tryRunOtaIfAllowed();
+    return true;
+  }
+  return false;
 }
 
 static void trySendIfNeeded() {
@@ -133,7 +304,7 @@ static void trySendIfNeeded() {
     LOGI("Firebase batch OK count=%u remain=%u", cnt, buffer.size());
     lastBatchCount = cnt;
     lastBatchTs = ts;
-    publishStatus(true);
+    syncFirebaseMaintenance(true);
   } else {
     // On failure: push back? (would require shifting). Simpler: re-add to buffer end (still no loss, order might change).
     LOGE("Firebase batch FAIL; re-queue to buffer tail");
@@ -214,6 +385,7 @@ void setup() {
 #if FIREBASE_LOGIN_BEFORE_BLE
   if (WiFi.status() == WL_CONNECTED) {
     fb.login(); // if fails, we'll retry on first send
+    syncFirebaseMaintenance(true);
   }
 #endif
 
@@ -261,7 +433,7 @@ void loop() {
   lastBufSize = curSize;
 
   trySendIfNeeded();
-  publishStatus(false);
+  syncFirebaseMaintenance(false);
 
   // Idle CPU a bit
   delay(5);

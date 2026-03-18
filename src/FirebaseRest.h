@@ -8,6 +8,14 @@
 
 class FirebaseRest {
 public:
+  struct UpdateControl {
+    bool pending{false};
+    bool force{false};
+    String version;
+    String url;
+    String sha256;
+  };
+
   void begin() {
     // nothing
   }
@@ -158,9 +166,46 @@ public:
     return true;
   }
 
+  bool getUpdateControl(const char* gatewayId, UpdateControl& out) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control/update.json?auth=" + idToken_;
+
+    String resp;
+    int code = httpsGet_(url, resp);
+    if (code != 200) {
+      LOGE("Firebase getUpdateControl failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    out.pending = extractJsonBool_(resp, "pending");
+    out.force = extractJsonBool_(resp, "force");
+    out.version = extractJsonString_(resp, "version");
+    out.url = extractJsonString_(resp, "url");
+    out.sha256 = extractJsonString_(resp, "sha256");
+    return true;
+  }
+
 private:
   int httpsPostJson_(const String& url, const String& payload, String& outResp, const char* /*unused*/) {
     return httpsSendJson_(url, "POST", payload, outResp);
+  }
+
+  int httpsGet_(const String& url, String& outResp) {
+    WiFiClientSecure client;
+    if (FIREBASE_TLS_INSECURE) client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(FIREBASE_HTTP_TIMEOUT_MS);
+    if (!http.begin(client, url)) {
+      LOGE("HTTP begin failed");
+      outResp = "";
+      return -1;
+    }
+    int code = http.GET();
+    outResp = http.getString();
+    http.end();
+    return code;
   }
 
   // Send JSON helper (https)
@@ -180,6 +225,16 @@ private:
     outResp = http.getString();
     http.end();
     return code;
+  }
+
+  bool extractJsonBool_(const String& json, const char* key) {
+    String needle = String("\"") + key + "\":";
+    int pos = json.indexOf(needle);
+    if (pos < 0) return false;
+    pos += needle.length();
+    while (pos < (int)json.length() && (json[pos] == ' ')) pos++;
+    if (pos >= (int)json.length()) return false;
+    return json.startsWith("true", pos);
   }
 
   // Very small JSON string extractor: finds "key":"value"
