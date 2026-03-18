@@ -27,6 +27,7 @@ static bool wifiFrozen = false;
 static bool timeSynced = false;
 static uint16_t lastBatchCount = 0;
 static uint32_t lastBatchTs = 0;
+static bool lastRebootPending = false;
 static bool lastUpdatePending = false;
 static String lastUpdateVersion;
 static bool lastUpdateAllowed = false;
@@ -36,6 +37,7 @@ static String currentUpdateSha256;
 static bool currentUpdateForce = false;
 static uint32_t lastOtaAttemptMs = 0;
 static String lastOtaAttemptVersion;
+static uint32_t lastOtaTs = 0;
 static String lastOtaVersion;
 static String lastOtaResult;
 
@@ -77,6 +79,21 @@ static void ensureWiFiConnected() {
 
 static bool hasHttpScheme(const String& url) {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+static void tryRunRebootIfAllowed() {
+  if (!lastRebootPending) return;
+
+  LOGW("Remote reboot start");
+  ble.stop();
+  if (!fb.clearReboot(wifiCfg.gatewayId())) {
+    LOGE("Remote reboot clear failed, BLE resumed");
+    ble.start();
+    return;
+  }
+  LOGW("Remote reboot restarting");
+  delay(300);
+  ESP.restart();
 }
 
 static bool performOtaFromUrl(const String& url) {
@@ -184,17 +201,19 @@ static void tryRunOtaIfAllowed() {
 
   bool ok = performOtaFromUrl(currentUpdateUrl);
   if (ok) {
+    lastOtaTs = TimeSync::nowUtc();
     lastOtaVersion = currentUpdateVersion;
     lastOtaResult = "success";
     fb.putStatus(
       wifiCfg.gatewayId(),
-      TimeSync::nowUtc(),
+      lastOtaTs,
       buffer.size(),
       FW_VERSION,
       WiFi.localIP().toString().c_str(),
       WiFi.RSSI(),
       lastBatchCount,
       lastBatchTs,
+      lastOtaTs,
       lastOtaVersion.c_str(),
       lastOtaResult.c_str()
     );
@@ -205,17 +224,19 @@ static void tryRunOtaIfAllowed() {
     return;
   }
 
+  lastOtaTs = TimeSync::nowUtc();
   lastOtaVersion = currentUpdateVersion;
   lastOtaResult = "failed";
   fb.putStatus(
     wifiCfg.gatewayId(),
-    TimeSync::nowUtc(),
+    lastOtaTs,
     buffer.size(),
     FW_VERSION,
     WiFi.localIP().toString().c_str(),
     WiFi.RSSI(),
     lastBatchCount,
     lastBatchTs,
+    lastOtaTs,
     lastOtaVersion.c_str(),
     lastOtaResult.c_str()
   );
@@ -258,6 +279,24 @@ static bool pollUpdateControl() {
   return true;
 }
 
+static bool pollRebootControl() {
+  bool reboot = false;
+  bool ok = fb.getRebootControl(wifiCfg.gatewayId(), reboot);
+  if (!ok) return false;
+
+  if (reboot) {
+    if (!lastRebootPending) {
+      LOGW("Remote reboot pending");
+    }
+    LOGW("Remote reboot allowed");
+  } else if (lastRebootPending) {
+    LOGI("Remote reboot cleared");
+  }
+
+  lastRebootPending = reboot;
+  return true;
+}
+
 static bool syncFirebaseMaintenance(bool force) {
   if (wifiCfg.isAPRunning()) return false;
   if (WiFi.status() != WL_CONNECTED) return false;
@@ -276,15 +315,18 @@ static bool syncFirebaseMaintenance(bool force) {
     WiFi.RSSI(),
     lastBatchCount,
     lastBatchTs,
+    lastOtaTs,
     lastOtaVersion.c_str(),
     lastOtaResult.c_str()
   );
   if (statusOk) {
     LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
   }
+  bool rebootOk = pollRebootControl();
   bool controlOk = pollUpdateControl();
-  if (statusOk && controlOk) {
+  if (statusOk && rebootOk && controlOk) {
     lastSyncMs = nowMs;
+    tryRunRebootIfAllowed();
     tryRunOtaIfAllowed();
     return true;
   }

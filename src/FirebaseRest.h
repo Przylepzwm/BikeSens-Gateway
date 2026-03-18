@@ -143,6 +143,7 @@ public:
                  int32_t wifiRssi,
                  uint16_t lastBatchCount,
                  uint32_t lastBatchTs,
+                 uint32_t lastOtaTs,
                  const char* lastOtaVersion,
                  const char* lastOtaResult) {
     if (!ensureTokenValid()) return false;
@@ -157,6 +158,7 @@ public:
     json += "\"wifi_rssi\":" + String(wifiRssi) + ",";
     json += "\"last_batch_count\":" + String(lastBatchCount) + ",";
     json += "\"last_batch_ts\":" + String(lastBatchTs) + ",";
+    json += "\"last_ota_ts\":" + String(lastOtaTs) + ",";
     json += "\"last_ota_version\":\"" + String(lastOtaVersion) + "\",";
     json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\"";
     json += "}";
@@ -182,6 +184,37 @@ public:
       LOGE("Firebase clearUpdatePending failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
+    return true;
+  }
+
+  bool clearReboot(const char* gatewayId) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control.json?auth=" + idToken_;
+    String json = "{\"reboot\":false}";
+
+    String resp;
+    int code = httpsSendJson_(url, "PATCH", json, resp);
+    if (code != 200) {
+      LOGE("Firebase clearReboot failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  bool getRebootControl(const char* gatewayId, bool& reboot) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control/reboot.json?auth=" + idToken_;
+
+    String resp;
+    int code = httpsGet_(url, resp);
+    if (code != 200) {
+      LOGE("Firebase getRebootControl failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    reboot = resp.startsWith("true");
     return true;
   }
 
