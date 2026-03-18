@@ -142,7 +142,9 @@ public:
                  const char* ip,
                  int32_t wifiRssi,
                  uint16_t lastBatchCount,
-                 uint32_t lastBatchTs) {
+                 uint32_t lastBatchTs,
+                 const char* lastOtaVersion,
+                 const char* lastOtaResult) {
     if (!ensureTokenValid()) return false;
 
     String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/status.json?auth=" + idToken_;
@@ -154,13 +156,30 @@ public:
     json += "\"ip\":\"" + String(ip) + "\",";
     json += "\"wifi_rssi\":" + String(wifiRssi) + ",";
     json += "\"last_batch_count\":" + String(lastBatchCount) + ",";
-    json += "\"last_batch_ts\":" + String(lastBatchTs);
+    json += "\"last_batch_ts\":" + String(lastBatchTs) + ",";
+    json += "\"last_ota_version\":\"" + String(lastOtaVersion) + "\",";
+    json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\"";
     json += "}";
 
     String resp;
     int code = httpsSendJson_(url, "PUT", json, resp);
     if (code != 200) {
       LOGE("Firebase putStatus failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  bool clearUpdatePending(const char* gatewayId) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control/update.json?auth=" + idToken_;
+    String json = "{\"pending\":false}";
+
+    String resp;
+    int code = httpsSendJson_(url, "PATCH", json, resp);
+    if (code != 200) {
+      LOGE("Firebase clearUpdatePending failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
     return true;

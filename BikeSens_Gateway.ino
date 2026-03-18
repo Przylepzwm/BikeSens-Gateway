@@ -36,6 +36,8 @@ static String currentUpdateSha256;
 static bool currentUpdateForce = false;
 static uint32_t lastOtaAttemptMs = 0;
 static String lastOtaAttemptVersion;
+static String lastOtaVersion;
+static String lastOtaResult;
 
 static void wifiFreeze() {
   if (WiFi.getMode() == WIFI_OFF) {
@@ -80,6 +82,7 @@ static bool hasHttpScheme(const String& url) {
 static bool performOtaFromUrl(const String& url) {
   HTTPClient http;
   http.setTimeout(FIREBASE_HTTP_TIMEOUT_MS);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
   int code = -1;
   int contentLength = -1;
@@ -181,12 +184,41 @@ static void tryRunOtaIfAllowed() {
 
   bool ok = performOtaFromUrl(currentUpdateUrl);
   if (ok) {
+    lastOtaVersion = currentUpdateVersion;
+    lastOtaResult = "success";
+    fb.putStatus(
+      wifiCfg.gatewayId(),
+      TimeSync::nowUtc(),
+      buffer.size(),
+      FW_VERSION,
+      WiFi.localIP().toString().c_str(),
+      WiFi.RSSI(),
+      lastBatchCount,
+      lastBatchTs,
+      lastOtaVersion.c_str(),
+      lastOtaResult.c_str()
+    );
+    fb.clearUpdatePending(wifiCfg.gatewayId());
     LOGW("OTA success, restarting");
     delay(300);
     ESP.restart();
     return;
   }
 
+  lastOtaVersion = currentUpdateVersion;
+  lastOtaResult = "failed";
+  fb.putStatus(
+    wifiCfg.gatewayId(),
+    TimeSync::nowUtc(),
+    buffer.size(),
+    FW_VERSION,
+    WiFi.localIP().toString().c_str(),
+    WiFi.RSSI(),
+    lastBatchCount,
+    lastBatchTs,
+    lastOtaVersion.c_str(),
+    lastOtaResult.c_str()
+  );
   LOGE("OTA failed, BLE resumed");
   ble.start();
 }
@@ -243,7 +275,9 @@ static bool syncFirebaseMaintenance(bool force) {
     ip.c_str(),
     WiFi.RSSI(),
     lastBatchCount,
-    lastBatchTs
+    lastBatchTs,
+    lastOtaVersion.c_str(),
+    lastOtaResult.c_str()
   );
   if (statusOk) {
     LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
