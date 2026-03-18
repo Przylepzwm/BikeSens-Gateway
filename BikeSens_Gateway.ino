@@ -10,12 +10,14 @@
 #include "src/WiFiConfigManager.h"
 #include "src/TimeSync.h"
 #include "src/RecordBuffer.h"
+#include "src/DeviceFilter.h"
 #include "src/RecentKeys.h"
 #include "src/BleScanner.h"
 #include "src/FirebaseRest.h"
 
 static WiFiConfigManager wifiCfg;
 static RecordBuffer buffer;
+static DeviceFilter deviceFilter;
 static RecentKeys recent;
 static BleScanner ble;
 static FirebaseRest fb;
@@ -79,6 +81,35 @@ static void ensureWiFiConnected() {
 
 static bool hasHttpScheme(const String& url) {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+static void loadDeviceFilterConfig() {
+  deviceFilter.begin();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    LOGW("Devices filter: WiFi not connected -> allow all");
+    return;
+  }
+
+  FirebaseRest::DevicesControl cfg;
+  if (!fb.getDevicesControl(wifiCfg.gatewayId(), cfg)) {
+    LOGW("Devices filter: fetch failed -> allow all");
+    return;
+  }
+
+  if (cfg.allowAll) {
+    deviceFilter.setAllowAll(true);
+    LOGI("Devices filter: mode=all");
+    return;
+  }
+
+  deviceFilter.setAllowAll(false);
+  deviceFilter.clearSelected();
+  for (uint16_t i = 0; i < cfg.count; i++) {
+    deviceFilter.addSelected(cfg.ids[i]);
+  }
+  deviceFilter.sortSelected();
+  LOGI("Devices filter: mode=selected count=%u", deviceFilter.selectedCount());
 }
 
 static void tryRunRebootIfAllowed() {
@@ -440,6 +471,7 @@ void setup() {
   LOGI("BikeSens Gateway boot (%s)", wifiCfg.gatewayId());
   LOGI("Reset reason: %d", esp_reset_reason());
   buffer.begin();
+  deviceFilter.begin();
   recent.begin();
   fb.begin();
 
@@ -461,6 +493,7 @@ void setup() {
 #if FIREBASE_LOGIN_BEFORE_BLE
   if (WiFi.status() == WL_CONNECTED) {
     fb.login(); // if fails, we'll retry on first send
+    loadDeviceFilterConfig();
     syncFirebaseMaintenance(true);
   }
 #endif
@@ -470,7 +503,7 @@ void setup() {
     wifiFreeze();
   }
 
-  ble.begin(&buffer, &recent);
+  ble.begin(&buffer, &recent, &deviceFilter);
   ble.start();
 
   lastRxMs = millis();

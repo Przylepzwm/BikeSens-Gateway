@@ -47,6 +47,7 @@ Firebase structure:
 - /gateways/<gateway_id>/status
 - /gateways/<gateway_id>/control/update
 - /gateways/<gateway_id>/control/reboot
+- /gateways/<gateway_id>/devices
 - /gateways/<gateway_id>/meta
 
 Batch payload:
@@ -105,6 +106,18 @@ Remote reboot:
 - When reboot == true:
   - gateway clears reboot flag
   - gateway restarts immediately
+
+Devices filter:
+- Controlled from:
+  /gateways/<gateway_id>/devices
+- Expected structure:
+  - mode: "all" or "selected"
+  - allowed: { "<device_id>": true, ... }
+- mode = all:
+  - gateway accepts all valid BikeSens advertisements
+- mode = selected:
+  - gateway accepts only device_id values present in allowed
+- Devices list is loaded at boot and checked with a lightweight binary search.
 
 Notes:
 - Current implementation uses FIREBASE_TLS_INSECURE = 1.

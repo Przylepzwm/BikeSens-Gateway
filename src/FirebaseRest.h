@@ -16,6 +16,12 @@ public:
     String sha256;
   };
 
+  struct DevicesControl {
+    bool allowAll{true};
+    uint16_t ids[MAX_SELECTED_DEVICES];
+    uint16_t count{0};
+  };
+
   void begin() {
     // nothing
   }
@@ -238,6 +244,59 @@ public:
     return true;
   }
 
+  bool getDevicesControl(const char* gatewayId, DevicesControl& out) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/devices.json?auth=" + idToken_;
+
+    String resp;
+    int code = httpsGet_(url, resp);
+    if (code != 200) {
+      LOGE("Firebase getDevicesControl failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    String mode = extractJsonString_(resp, "mode");
+    out.allowAll = (mode != "selected");
+    out.count = 0;
+
+    int allowedPos = resp.indexOf("\"allowed\":");
+    if (allowedPos < 0) return true;
+
+    int braceStart = resp.indexOf('{', allowedPos);
+    if (braceStart < 0) return true;
+
+    int braceEnd = findMatchingBrace_(resp, braceStart);
+    if (braceEnd < 0) return true;
+
+    int pos = braceStart + 1;
+    while (pos < braceEnd && out.count < MAX_SELECTED_DEVICES) {
+      int keyStart = resp.indexOf('"', pos);
+      if (keyStart < 0 || keyStart >= braceEnd) break;
+      int keyEnd = resp.indexOf('"', keyStart + 1);
+      if (keyEnd < 0 || keyEnd >= braceEnd) break;
+
+      String key = resp.substring(keyStart + 1, keyEnd);
+      uint32_t v = (uint32_t)key.toInt();
+      if (v <= 0xFFFFUL) {
+        out.ids[out.count++] = (uint16_t)v;
+      }
+      pos = keyEnd + 1;
+    }
+
+    // insertion sort once at load time
+    for (uint16_t i = 1; i < out.count; i++) {
+      uint16_t val = out.ids[i];
+      int16_t j = (int16_t)i - 1;
+      while (j >= 0 && out.ids[j] > val) {
+        out.ids[j + 1] = out.ids[j];
+        j--;
+      }
+      out.ids[j + 1] = val;
+    }
+    return true;
+  }
+
 private:
   int httpsPostJson_(const String& url, const String& payload, String& outResp, const char* /*unused*/) {
     return httpsSendJson_(url, "POST", payload, outResp);
@@ -287,6 +346,18 @@ private:
     while (pos < (int)json.length() && (json[pos] == ' ')) pos++;
     if (pos >= (int)json.length()) return false;
     return json.startsWith("true", pos);
+  }
+
+  int findMatchingBrace_(const String& json, int openPos) {
+    int depth = 0;
+    for (int i = openPos; i < (int)json.length(); i++) {
+      if (json[i] == '{') depth++;
+      else if (json[i] == '}') {
+        depth--;
+        if (depth == 0) return i;
+      }
+    }
+    return -1;
   }
 
   // Very small JSON string extractor: finds "key":"value"

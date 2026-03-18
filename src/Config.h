@@ -6,7 +6,7 @@
 
 // -------- Identity --------
 static const char* DEFAULT_GATEWAY_ID = "gw01";
-static const char* FW_VERSION = "1.0.3";
+static const char* FW_VERSION = "1.0.4";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git
@@ -49,6 +49,7 @@ static const char* AP_PASS = "bikesense123";
 
 // -------- Dedup cache --------
 static constexpr uint16_t RECENT_KEYS_MAX = 512; // must be power-of-two? (no, but keep >= 256)
+static constexpr uint16_t MAX_SELECTED_DEVICES = 32;
 
 // -------- Logging --------
 #define LOG_ENABLED 1

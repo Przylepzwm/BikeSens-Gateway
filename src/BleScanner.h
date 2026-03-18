@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include "Config.h"
+#include "DeviceFilter.h"
 #include "Logger.h"
 #include "GatewayTypes.h"
 #include "RecordBuffer.h"
@@ -10,9 +11,10 @@
 
 class BleScanner : public NimBLEScanCallbacks {
 public:
-  void begin(RecordBuffer* buf, RecentKeys* recent) {
+  void begin(RecordBuffer* buf, RecentKeys* recent, DeviceFilter* filter) {
     buf_ = buf;
     recent_ = recent;
+    filter_ = filter;
 
     NimBLEDevice::init("");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9); // max RX sensitivity/power
@@ -83,6 +85,8 @@ private:
     uint16_t pulses    = (uint16_t)d[8] | ((uint16_t)d[9] << 8);
     uint16_t bat       = (uint16_t)d[10];
 
+    if (filter_ && !filter_->accepts(device_id)) return;
+
     uint32_t key = ((uint32_t)device_id << 16) | (uint32_t)seq;
     if (recent_ && recent_->seenOrInsert(key)) return;
 
@@ -110,4 +114,5 @@ private:
 
   RecordBuffer* buf_{nullptr};
   RecentKeys* recent_{nullptr};
+  DeviceFilter* filter_{nullptr};
 };
