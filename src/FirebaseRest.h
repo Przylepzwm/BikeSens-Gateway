@@ -32,6 +32,12 @@ public:
     // nothing
   }
 
+  void resetSession() {
+    idToken_ = "";
+    refreshToken_ = "";
+    tokenExpiryMs_ = 0;
+  }
+
   bool login() {
     // Identity Toolkit: signInWithPassword
     // POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=[API_KEY]

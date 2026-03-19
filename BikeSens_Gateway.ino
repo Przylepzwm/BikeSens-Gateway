@@ -48,6 +48,7 @@ static String lastError;
 static int32_t bootResetReason = 0;
 static uint32_t statusSyncOkCount = 0;
 static uint32_t statusSyncFailCount = 0;
+static uint8_t consecutiveMaintenanceFailCount = 0;
 static uint32_t apStartedMs = 0;
 static bool autoRebootEnabled = false;
 static uint16_t autoRebootMinutes[MAX_REBOOT_SLOTS];
@@ -94,6 +95,30 @@ static void ensureWiFiConnected() {
   if (!ok) {
     lastError = "wifi_reconnect_failed";
   }
+}
+
+static bool recoverFirebaseMaintenance() {
+  LOGW("Maintenance recovery start");
+  fb.resetSession();
+
+  bool ok = wifiCfg.reconnectSaved(WIFI_RECONNECT_TIMEOUT_MS);
+  lastWifiReconnectTs = TimeSync::nowUtc();
+  lastWifiReconnectResult = ok ? "ok" : "failed";
+  if (!ok) {
+    lastError = "maintenance_recovery_wifi_failed";
+    LOGE("Maintenance recovery WiFi failed");
+    return false;
+  }
+
+  if (!fb.login()) {
+    lastError = "maintenance_recovery_login_failed";
+    LOGE("Maintenance recovery Firebase login failed");
+    return false;
+  }
+
+  lastError = "maintenance_recovered";
+  LOGI("Maintenance recovery OK");
+  return true;
 }
 
 static bool hasHttpScheme(const String& url) {
@@ -472,18 +497,37 @@ static bool syncFirebaseMaintenance(bool force) {
   if (!statusOk) {
     statusSyncFailCount++;
     lastError = "firebase_status_failed";
-  }
-  if (statusOk) {
+    consecutiveMaintenanceFailCount++;
+  } else {
     statusSyncOkCount++;
     LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
-    if (lastError == "firebase_status_failed") lastError = "";
+    bool rebootOk = pollRebootControl();
+    if (!rebootOk) {
+      consecutiveMaintenanceFailCount++;
+    } else {
+      bool controlOk = pollUpdateControl();
+      if (!controlOk) {
+        consecutiveMaintenanceFailCount++;
+      } else {
+        consecutiveMaintenanceFailCount = 0;
+        if (lastError == "firebase_status_failed" ||
+            lastError == "reboot_control_fetch_failed" ||
+            lastError == "update_control_fetch_failed" ||
+            lastError == "maintenance_recovered") {
+          lastError = "";
+        }
+        tryRunRebootIfAllowed();
+        tryRunOtaIfAllowed();
+        return true;
+      }
+    }
   }
-  bool rebootOk = pollRebootControl();
-  bool controlOk = pollUpdateControl();
-  if (statusOk && rebootOk && controlOk) {
-    tryRunRebootIfAllowed();
-    tryRunOtaIfAllowed();
-    return true;
+
+  if (consecutiveMaintenanceFailCount >= MAINTENANCE_FAILURE_RESET_THRESHOLD) {
+    LOGW("Maintenance failures=%u -> force recovery", consecutiveMaintenanceFailCount);
+    if (recoverFirebaseMaintenance()) {
+      consecutiveMaintenanceFailCount = 0;
+    }
   }
   return false;
 }
