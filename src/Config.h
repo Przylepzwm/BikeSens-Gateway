@@ -44,6 +44,8 @@ static const uint32_t WIFI_RECONNECT_TIMEOUT_MS = 8000UL;
 static const uint32_t RECONNECT_INTERVAL_MS = 60UL * 1000UL;
 static const uint32_t STATUS_INTERVAL_MS = 5UL * 60UL * 1000UL;
 static const uint32_t OTA_RETRY_INTERVAL_MS = 5UL * 60UL * 1000UL;
+static const uint32_t AP_TIMEOUT_MS = 5UL * 60UL * 1000UL;
+static const uint32_t AUTO_REBOOT_GRACE_MS = 90UL * 1000UL;
 
 static const char* AP_SSID = "BikeSense-Gateway";
 static const char* AP_PASS = "bikesense123";
@@ -51,6 +53,7 @@ static const char* AP_PASS = "bikesense123";
 // -------- Dedup cache --------
 static constexpr uint16_t RECENT_KEYS_MAX = 512; // must be power-of-two? (no, but keep >= 256)
 static constexpr uint16_t MAX_SELECTED_DEVICES = 32;
+static constexpr uint16_t MAX_REBOOT_SLOTS = 8;
 
 // -------- Logging --------
 #define LOG_ENABLED 1

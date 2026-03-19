@@ -48,6 +48,12 @@ static String lastError;
 static int32_t bootResetReason = 0;
 static uint32_t statusSyncOkCount = 0;
 static uint32_t statusSyncFailCount = 0;
+static uint32_t apStartedMs = 0;
+static bool autoRebootEnabled = false;
+static uint16_t autoRebootMinutes[MAX_REBOOT_SLOTS];
+static uint16_t autoRebootCount = 0;
+static uint32_t lastAutoRebootDay = 0;
+static int16_t lastAutoRebootMinute = -1;
 
 static void wifiFreeze() {
   if (WiFi.getMode() == WIFI_OFF) {
@@ -123,6 +129,60 @@ static void loadDeviceFilterConfig() {
   }
   deviceFilter.sortSelected();
   LOGI("Devices filter: mode=selected count=%u", deviceFilter.selectedCount());
+}
+
+static void loadMaintenanceConfig() {
+  autoRebootEnabled = false;
+  autoRebootCount = 0;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    lastError = "maintenance_wifi_unavailable";
+    return;
+  }
+
+  FirebaseRest::MaintenanceControl cfg;
+  if (!fb.getMaintenanceControl(wifiCfg.gatewayId(), cfg)) {
+    lastError = "maintenance_fetch_failed";
+    return;
+  }
+
+  autoRebootEnabled = cfg.autoRebootEnabled;
+  autoRebootCount = cfg.count;
+  for (uint16_t i = 0; i < cfg.count; i++) {
+    autoRebootMinutes[i] = cfg.rebootMinutes[i];
+  }
+
+  if (autoRebootEnabled) {
+    LOGI("Maintenance: auto_reboot enabled count=%u", autoRebootCount);
+  } else {
+    LOGI("Maintenance: auto_reboot disabled");
+  }
+}
+
+static void maybeRunScheduledReboot() {
+  if (!autoRebootEnabled || autoRebootCount == 0) return;
+  if (millis() < AUTO_REBOOT_GRACE_MS) return;
+
+  uint32_t nowUtc = TimeSync::nowUtc();
+  if (nowUtc == 0) return;
+
+  uint32_t day = nowUtc / 86400UL;
+  uint16_t minuteOfDay = (uint16_t)((nowUtc % 86400UL) / 60UL);
+
+  if (day == lastAutoRebootDay && minuteOfDay == (uint16_t)lastAutoRebootMinute) return;
+
+  for (uint16_t i = 0; i < autoRebootCount; i++) {
+    if (autoRebootMinutes[i] != minuteOfDay) continue;
+
+    lastAutoRebootDay = day;
+    lastAutoRebootMinute = (int16_t)minuteOfDay;
+    lastError = "scheduled_reboot";
+    LOGW("Scheduled reboot at minute=%u", minuteOfDay);
+    ble.stop();
+    delay(300);
+    ESP.restart();
+    return;
+  }
 }
 
 static void tryRunRebootIfAllowed() {
@@ -550,6 +610,7 @@ void setup() {
   if (!wifiOk) {
     // Start AP config mode (still scan BLE + buffer)
     lastError = "wifi_boot_connect_failed";
+    apStartedMs = millis();
     wifiCfg.startAP();
   }
 
@@ -561,6 +622,7 @@ void setup() {
 #if FIREBASE_LOGIN_BEFORE_BLE
   if (WiFi.status() == WL_CONNECTED) {
     fb.login(); // if fails, we'll retry on first send
+    loadMaintenanceConfig();
     loadDeviceFilterConfig();
     syncFirebaseMaintenance(true);
   }
@@ -585,6 +647,11 @@ void loop() {
   // This stabilizes WPA2 handshake on macOS and avoids reboots/radio conflicts.
   if (wifiCfg.isAPRunning()) {
     ble.stop();
+    if (AP_TIMEOUT_MS > 0 && (millis() - apStartedMs) >= AP_TIMEOUT_MS) {
+      LOGW("AP timeout -> restart");
+      delay(300);
+      ESP.restart();
+    }
     delay(10);
     return;
   }
@@ -600,6 +667,7 @@ void loop() {
   ensureWiFiConnected();
   // Time sync during night
   dailyNtpResyncIfNeeded();
+  maybeRunScheduledReboot();
 
   // Update lastRxMs when buffer grows (means BLE callback pushed a record)
   static uint16_t lastBufSize = 0;

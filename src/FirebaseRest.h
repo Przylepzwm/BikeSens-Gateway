@@ -22,6 +22,12 @@ public:
     uint16_t count{0};
   };
 
+  struct MaintenanceControl {
+    bool autoRebootEnabled{false};
+    uint16_t rebootMinutes[MAX_REBOOT_SLOTS];
+    uint16_t count{0};
+  };
+
   void begin() {
     // nothing
   }
@@ -309,6 +315,60 @@ public:
         j--;
       }
       out.ids[j + 1] = val;
+    }
+    return true;
+  }
+
+  bool getMaintenanceControl(const char* gatewayId, MaintenanceControl& out) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control/maintenance.json?auth=" + idToken_;
+
+    String resp;
+    int code = httpsGet_(url, resp);
+    if (code != 200) {
+      LOGE("Firebase getMaintenanceControl failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+
+    out.autoRebootEnabled = extractJsonBool_(resp, "auto_reboot_enabled");
+    out.count = 0;
+
+    int timesPos = resp.indexOf("\"times\":");
+    if (timesPos < 0) return true;
+
+    int braceStart = resp.indexOf('{', timesPos);
+    if (braceStart < 0) return true;
+
+    int braceEnd = findMatchingBrace_(resp, braceStart);
+    if (braceEnd < 0) return true;
+
+    int pos = braceStart + 1;
+    while (pos < braceEnd && out.count < MAX_REBOOT_SLOTS) {
+      int valueQuote1 = resp.indexOf('"', pos);
+      if (valueQuote1 < 0 || valueQuote1 >= braceEnd) break;
+      int valueQuote2 = resp.indexOf('"', valueQuote1 + 1);
+      if (valueQuote2 < 0 || valueQuote2 >= braceEnd) break;
+
+      String timeStr = resp.substring(valueQuote1 + 1, valueQuote2);
+      if (timeStr.length() == 5 && timeStr[2] == ':') {
+        int hour = timeStr.substring(0, 2).toInt();
+        int minute = timeStr.substring(3, 5).toInt();
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+          out.rebootMinutes[out.count++] = (uint16_t)(hour * 60 + minute);
+        }
+      }
+      pos = valueQuote2 + 1;
+    }
+
+    for (uint16_t i = 1; i < out.count; i++) {
+      uint16_t val = out.rebootMinutes[i];
+      int16_t j = (int16_t)i - 1;
+      while (j >= 0 && out.rebootMinutes[j] > val) {
+        out.rebootMinutes[j + 1] = out.rebootMinutes[j];
+        j--;
+      }
+      out.rebootMinutes[j + 1] = val;
     }
     return true;
   }

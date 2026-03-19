@@ -47,6 +47,7 @@ Firebase structure:
 - /gateways/<gateway_id>/status
 - /gateways/<gateway_id>/control/update
 - /gateways/<gateway_id>/control/reboot
+- /gateways/<gateway_id>/control/maintenance
 - /gateways/<gateway_id>/devices
 - /gateways/<gateway_id>/meta
 
@@ -82,6 +83,7 @@ AP mode:
   - gateway_id
   - Wi-Fi SSID
   - Wi-Fi password
+- If AP stays active longer than AP_TIMEOUT_MS, gateway restarts.
 
 Overflow policy:
 - Buffer is stored in RAM only.
@@ -114,6 +116,14 @@ Remote reboot:
 - When reboot == true:
   - gateway clears reboot flag
   - gateway restarts immediately
+
+Maintenance:
+- Loaded once at boot from:
+  /gateways/<gateway_id>/control/maintenance
+- Expected structure:
+  - auto_reboot_enabled: true/false
+  - times: { "1": "00:01", "2": "08:46" }
+- Scheduled reboot is executed locally by gateway when current minute matches one of the configured slots.
 
 Devices filter:
 - Controlled from:
