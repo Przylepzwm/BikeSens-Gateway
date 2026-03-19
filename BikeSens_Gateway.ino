@@ -42,6 +42,12 @@ static String lastOtaAttemptVersion;
 static uint32_t lastOtaTs = 0;
 static String lastOtaVersion;
 static String lastOtaResult;
+static uint32_t lastWifiReconnectTs = 0;
+static String lastWifiReconnectResult;
+static String lastError;
+static int32_t bootResetReason = 0;
+static uint32_t statusSyncOkCount = 0;
+static uint32_t statusSyncFailCount = 0;
 
 static void wifiFreeze() {
   if (WiFi.getMode() == WIFI_OFF) {
@@ -76,7 +82,12 @@ static void ensureWiFiConnected() {
 
   if (!wifiCfg.hasSavedWiFi()) return;
   LOGW("WiFi disconnected -> reconnect attempt");
-  wifiCfg.connectSaved(WIFI_CONNECT_TIMEOUT_MS);
+  bool ok = wifiCfg.reconnectSaved(WIFI_RECONNECT_TIMEOUT_MS);
+  lastWifiReconnectTs = TimeSync::nowUtc();
+  lastWifiReconnectResult = ok ? "ok" : "failed";
+  if (!ok) {
+    lastError = "wifi_reconnect_failed";
+  }
 }
 
 static bool hasHttpScheme(const String& url) {
@@ -88,12 +99,14 @@ static void loadDeviceFilterConfig() {
 
   if (WiFi.status() != WL_CONNECTED) {
     LOGW("Devices filter: WiFi not connected -> allow all");
+    lastError = "devices_filter_wifi_unavailable";
     return;
   }
 
   FirebaseRest::DevicesControl cfg;
   if (!fb.getDevicesControl(wifiCfg.gatewayId(), cfg)) {
     LOGW("Devices filter: fetch failed -> allow all");
+    lastError = "devices_filter_fetch_failed";
     return;
   }
 
@@ -119,6 +132,7 @@ static void tryRunRebootIfAllowed() {
   ble.stop();
   if (!fb.clearReboot(wifiCfg.gatewayId())) {
     LOGE("Remote reboot clear failed, BLE resumed");
+    lastError = "remote_reboot_clear_failed";
     ble.start();
     return;
   }
@@ -140,17 +154,20 @@ static bool performOtaFromUrl(const String& url) {
     if (FIREBASE_TLS_INSECURE) client.setInsecure();
     if (!http.begin(client, url)) {
       LOGE("OTA HTTP begin failed");
+      lastError = "ota_http_begin_failed";
       return false;
     }
     code = http.GET();
     contentLength = http.getSize();
     if (code != 200) {
       LOGE("OTA HTTP GET failed: code=%d", code);
+      lastError = "ota_http_get_failed";
       http.end();
       return false;
     }
     if (!Update.begin(contentLength > 0 ? (size_t)contentLength : UPDATE_SIZE_UNKNOWN)) {
       LOGE("OTA begin failed: err=%u", Update.getError());
+      lastError = "ota_begin_failed";
       http.end();
       return false;
     }
@@ -160,10 +177,12 @@ static bool performOtaFromUrl(const String& url) {
     http.end();
     if (!finished || !Update.isFinished()) {
       LOGE("OTA end failed: err=%u", Update.getError());
+      lastError = "ota_end_failed";
       return false;
     }
     if (contentLength > 0 && written != (size_t)contentLength) {
       LOGE("OTA size mismatch: written=%u expected=%d", (unsigned)written, contentLength);
+      lastError = "ota_size_mismatch";
       return false;
     }
     return true;
@@ -173,17 +192,20 @@ static bool performOtaFromUrl(const String& url) {
     WiFiClient client;
     if (!http.begin(client, url)) {
       LOGE("OTA HTTP begin failed");
+      lastError = "ota_http_begin_failed";
       return false;
     }
     code = http.GET();
     contentLength = http.getSize();
     if (code != 200) {
       LOGE("OTA HTTP GET failed: code=%d", code);
+      lastError = "ota_http_get_failed";
       http.end();
       return false;
     }
     if (!Update.begin(contentLength > 0 ? (size_t)contentLength : UPDATE_SIZE_UNKNOWN)) {
       LOGE("OTA begin failed: err=%u", Update.getError());
+      lastError = "ota_begin_failed";
       http.end();
       return false;
     }
@@ -193,16 +215,19 @@ static bool performOtaFromUrl(const String& url) {
     http.end();
     if (!finished || !Update.isFinished()) {
       LOGE("OTA end failed: err=%u", Update.getError());
+      lastError = "ota_end_failed";
       return false;
     }
     if (contentLength > 0 && written != (size_t)contentLength) {
       LOGE("OTA size mismatch: written=%u expected=%d", (unsigned)written, contentLength);
+      lastError = "ota_size_mismatch";
       return false;
     }
     return true;
   }
 
   LOGE("OTA URL must start with http:// or https://");
+  lastError = "ota_invalid_url";
   return false;
 }
 
@@ -210,11 +235,13 @@ static void tryRunOtaIfAllowed() {
   if (!lastUpdatePending || !lastUpdateAllowed) return;
   if (currentUpdateVersion.length() == 0) {
     LOGE("OTA skipped: empty version");
+    lastError = "ota_empty_version";
     return;
   }
   if (currentUpdateVersion == FW_VERSION) return;
   if (!hasHttpScheme(currentUpdateUrl)) {
     LOGE("OTA skipped: invalid url=%s", currentUpdateUrl.c_str());
+    lastError = "ota_invalid_url";
     return;
   }
 
@@ -235,6 +262,7 @@ static void tryRunOtaIfAllowed() {
     lastOtaTs = TimeSync::nowUtc();
     lastOtaVersion = currentUpdateVersion;
     lastOtaResult = "success";
+    lastError = "";
     fb.putStatus(
       wifiCfg.gatewayId(),
       lastOtaTs,
@@ -246,7 +274,15 @@ static void tryRunOtaIfAllowed() {
       lastBatchTs,
       lastOtaTs,
       lastOtaVersion.c_str(),
-      lastOtaResult.c_str()
+      lastOtaResult.c_str(),
+      lastWifiReconnectTs,
+      lastWifiReconnectResult.c_str(),
+      bootResetReason,
+      lastError.c_str(),
+      millis() / 1000UL,
+      ESP.getFreeHeap(),
+      statusSyncOkCount,
+      statusSyncFailCount
     );
     fb.clearUpdatePending(wifiCfg.gatewayId());
     LOGW("OTA success, restarting");
@@ -269,7 +305,15 @@ static void tryRunOtaIfAllowed() {
     lastBatchTs,
     lastOtaTs,
     lastOtaVersion.c_str(),
-    lastOtaResult.c_str()
+    lastOtaResult.c_str(),
+    lastWifiReconnectTs,
+    lastWifiReconnectResult.c_str(),
+    bootResetReason,
+    lastError.c_str(),
+    millis() / 1000UL,
+    ESP.getFreeHeap(),
+    statusSyncOkCount,
+    statusSyncFailCount
   );
   LOGE("OTA failed, BLE resumed");
   ble.start();
@@ -278,7 +322,10 @@ static void tryRunOtaIfAllowed() {
 static bool pollUpdateControl() {
   FirebaseRest::UpdateControl ctrl;
   bool ok = fb.getUpdateControl(wifiCfg.gatewayId(), ctrl);
-  if (!ok) return false;
+  if (!ok) {
+    lastError = "update_control_fetch_failed";
+    return false;
+  }
 
   if (ctrl.pending) {
     bool allowed = (buffer.size() == 0);
@@ -313,7 +360,10 @@ static bool pollUpdateControl() {
 static bool pollRebootControl() {
   bool reboot = false;
   bool ok = fb.getRebootControl(wifiCfg.gatewayId(), reboot);
-  if (!ok) return false;
+  if (!ok) {
+    lastError = "reboot_control_fetch_failed";
+    return false;
+  }
 
   if (reboot) {
     if (!lastRebootPending) {
@@ -334,6 +384,7 @@ static bool syncFirebaseMaintenance(bool force) {
 
   uint32_t nowMs = millis();
   if (!force && (nowMs - lastSyncMs) < STATUS_INTERVAL_MS) return false;
+  lastSyncMs = nowMs;
 
   String ip = WiFi.localIP().toString();
   uint32_t lastSeen = TimeSync::nowUtc();
@@ -348,15 +399,28 @@ static bool syncFirebaseMaintenance(bool force) {
     lastBatchTs,
     lastOtaTs,
     lastOtaVersion.c_str(),
-    lastOtaResult.c_str()
+    lastOtaResult.c_str(),
+    lastWifiReconnectTs,
+    lastWifiReconnectResult.c_str(),
+    bootResetReason,
+    lastError.c_str(),
+    millis() / 1000UL,
+    ESP.getFreeHeap(),
+    statusSyncOkCount,
+    statusSyncFailCount
   );
+  if (!statusOk) {
+    statusSyncFailCount++;
+    lastError = "firebase_status_failed";
+  }
   if (statusOk) {
+    statusSyncOkCount++;
     LOGI("Firebase status OK buf=%u batch_count=%u", buffer.size(), lastBatchCount);
+    if (lastError == "firebase_status_failed") lastError = "";
   }
   bool rebootOk = pollRebootControl();
   bool controlOk = pollUpdateControl();
   if (statusOk && rebootOk && controlOk) {
-    lastSyncMs = nowMs;
     tryRunRebootIfAllowed();
     tryRunOtaIfAllowed();
     return true;
@@ -409,12 +473,14 @@ static void trySendIfNeeded() {
   bool ok = fb.pushBatch(wifiCfg.gatewayId(), ts, items, cnt);
   if (ok) {
     LOGI("Firebase batch OK count=%u remain=%u", cnt, buffer.size());
+    if (lastError == "firebase_batch_failed") lastError = "";
     lastBatchCount = cnt;
     lastBatchTs = ts;
     syncFirebaseMaintenance(true);
   } else {
     // On failure: push back? (would require shifting). Simpler: re-add to buffer end (still no loss, order might change).
     LOGE("Firebase batch FAIL; re-queue to buffer tail");
+    lastError = "firebase_batch_failed";
     for (uint16_t i = 0; i < cnt; i++) buffer.push(items[i]);
     // small backoff
     delay(200);
@@ -468,8 +534,9 @@ static void dailyNtpResyncIfNeeded() {
 void setup() {
   Logger::begin();
   wifiCfg.begin();
+  bootResetReason = (int32_t)esp_reset_reason();
   LOGI("BikeSens Gateway boot (%s)", wifiCfg.gatewayId());
-  LOGI("Reset reason: %d", esp_reset_reason());
+  LOGI("Reset reason: %d", bootResetReason);
   buffer.begin();
   deviceFilter.begin();
   recent.begin();
@@ -482,6 +549,7 @@ void setup() {
 
   if (!wifiOk) {
     // Start AP config mode (still scan BLE + buffer)
+    lastError = "wifi_boot_connect_failed";
     wifiCfg.startAP();
   }
 

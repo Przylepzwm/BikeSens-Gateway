@@ -67,6 +67,14 @@ Status payload:
 - last_ota_ts
 - last_ota_version
 - last_ota_result
+- last_wifi_reconnect_ts
+- last_wifi_reconnect_result
+- reset_reason
+- last_error
+- uptime_s
+- free_heap
+- status_sync_ok_count
+- status_sync_fail_count
 
 AP mode:
 - If Wi-Fi is not configured or connection at boot fails, gateway starts AP + web config page.

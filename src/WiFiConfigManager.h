@@ -68,6 +68,37 @@ public:
     return false;
   }
 
+  bool reconnectSaved(uint32_t timeoutMs) {
+    String ssid, pass;
+    loadSavedWiFi(ssid, pass);
+    if (ssid.length() == 0) return false;
+
+    LOGW("WiFi reconnect reset");
+    WiFi.disconnect(true, true);
+    WiFi.mode(WIFI_OFF);
+    delay(150);
+
+    LOGI("WiFi reconnect: ssid=%s", ssid.c_str());
+    WiFi.mode(WIFI_STA);
+    delay(50);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - t0) < timeoutMs) {
+      delay(200);
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      LOGI("WiFi reconnected: ip=%s", WiFi.localIP().toString().c_str());
+      return true;
+    }
+
+    LOGW("WiFi reconnect failed");
+    WiFi.disconnect(true, true);
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    return false;
+  }
+
   void startAP() {
     if (apRunning_) return;
 

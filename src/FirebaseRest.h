@@ -151,7 +151,15 @@ public:
                  uint32_t lastBatchTs,
                  uint32_t lastOtaTs,
                  const char* lastOtaVersion,
-                 const char* lastOtaResult) {
+                 const char* lastOtaResult,
+                 uint32_t lastWifiReconnectTs,
+                 const char* lastWifiReconnectResult,
+                 int32_t resetReason,
+                 const char* lastError,
+                 uint32_t uptimeS,
+                 uint32_t freeHeap,
+                 uint32_t statusSyncOkCount,
+                 uint32_t statusSyncFailCount) {
     if (!ensureTokenValid()) return false;
 
     String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/status.json?auth=" + idToken_;
@@ -166,7 +174,15 @@ public:
     json += "\"last_batch_ts\":" + String(lastBatchTs) + ",";
     json += "\"last_ota_ts\":" + String(lastOtaTs) + ",";
     json += "\"last_ota_version\":\"" + String(lastOtaVersion) + "\",";
-    json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\"";
+    json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\",";
+    json += "\"last_wifi_reconnect_ts\":" + String(lastWifiReconnectTs) + ",";
+    json += "\"last_wifi_reconnect_result\":\"" + String(lastWifiReconnectResult) + "\",";
+    json += "\"reset_reason\":" + String(resetReason) + ",";
+    json += "\"last_error\":\"" + String(lastError) + "\",";
+    json += "\"uptime_s\":" + String(uptimeS) + ",";
+    json += "\"free_heap\":" + String(freeHeap) + ",";
+    json += "\"status_sync_ok_count\":" + String(statusSyncOkCount) + ",";
+    json += "\"status_sync_fail_count\":" + String(statusSyncFailCount);
     json += "}";
 
     String resp;
