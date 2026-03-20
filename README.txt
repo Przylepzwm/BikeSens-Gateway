@@ -124,6 +124,12 @@ Maintenance:
   - auto_reboot_enabled: true/false
   - times: { "1": "00:01", "2": "08:46" }
 - Scheduled reboot is executed locally by gateway when current minute matches one of the configured slots.
+- If periodic Firebase maintenance requests start failing, gateway first tries runtime recovery:
+  - reset Firebase session
+  - reset Wi-Fi stack
+  - perform fresh Firebase login
+- During such failures, maintenance retries are temporarily accelerated instead of waiting for the normal 5-minute heartbeat period.
+- If repeated recovery attempts still cannot restore Firebase login, gateway performs a controlled restart.
 
 Devices filter:
 - Controlled from:

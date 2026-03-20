@@ -49,6 +49,7 @@ static int32_t bootResetReason = 0;
 static uint32_t statusSyncOkCount = 0;
 static uint32_t statusSyncFailCount = 0;
 static uint8_t consecutiveMaintenanceFailCount = 0;
+static uint8_t consecutiveMaintenanceLoginFailCount = 0;
 static uint32_t apStartedMs = 0;
 static bool autoRebootEnabled = false;
 static uint16_t autoRebootMinutes[MAX_REBOOT_SLOTS];
@@ -111,11 +112,19 @@ static bool recoverFirebaseMaintenance() {
   }
 
   if (!fb.login()) {
+    consecutiveMaintenanceLoginFailCount++;
     lastError = "maintenance_recovery_login_failed";
     LOGE("Maintenance recovery Firebase login failed");
+    if (consecutiveMaintenanceLoginFailCount >= MAINTENANCE_LOGIN_FAILURE_RESTART_THRESHOLD) {
+      lastError = "maintenance_recovery_restart";
+      LOGE("Maintenance recovery exhausted -> restart");
+      delay(300);
+      ESP.restart();
+    }
     return false;
   }
 
+  consecutiveMaintenanceLoginFailCount = 0;
   lastError = "maintenance_recovered";
   LOGI("Maintenance recovery OK");
   return true;
@@ -412,6 +421,15 @@ static bool pollUpdateControl() {
     return false;
   }
 
+  if (ctrl.pending && ctrl.version == FW_VERSION) {
+    LOGI("OTA already applied version=%s -> clear pending", ctrl.version.c_str());
+    if (!fb.clearUpdatePending(wifiCfg.gatewayId())) {
+      lastError = "update_pending_clear_failed";
+      return false;
+    }
+    ctrl.pending = false;
+  }
+
   if (ctrl.pending) {
     bool allowed = (buffer.size() == 0);
     bool changed = (!lastUpdatePending) || (ctrl.version != lastUpdateVersion);
@@ -468,7 +486,10 @@ static bool syncFirebaseMaintenance(bool force) {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   uint32_t nowMs = millis();
-  if (!force && (nowMs - lastSyncMs) < STATUS_INTERVAL_MS) return false;
+  uint32_t syncIntervalMs = (consecutiveMaintenanceFailCount > 0)
+    ? MAINTENANCE_FAILURE_RETRY_MS
+    : STATUS_INTERVAL_MS;
+  if (!force && (nowMs - lastSyncMs) < syncIntervalMs) return false;
   lastSyncMs = nowMs;
 
   String ip = WiFi.localIP().toString();

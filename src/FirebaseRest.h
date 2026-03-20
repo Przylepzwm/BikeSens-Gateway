@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include "Config.h"
@@ -51,6 +52,7 @@ public:
     String resp;
     int code = httpsPostJson_(url, payload, resp, /*auth*/nullptr);
     if (code != 200) {
+      logHeapDiag_("firebase_login_failed");
       LOGE("Firebase login failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
@@ -62,7 +64,11 @@ public:
     String exp = extractJsonString_(resp, "expiresIn");
 
     if (idToken_.length() == 0 || refreshToken_.length() == 0) {
-      LOGE("Firebase login parse error");
+      String preview = resp.substring(0, 120);
+      preview.replace('\n', ' ');
+      preview.replace('\r', ' ');
+      logHeapDiag_("firebase_login_parse_error");
+      LOGE("Firebase login parse error len=%u resp=%s", (unsigned)resp.length(), preview.c_str());
       return false;
     }
 
@@ -100,6 +106,7 @@ public:
     http.end();
 
     if (code != 200) {
+      logHeapDiag_("token_refresh_failed");
       LOGE("Token refresh failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
@@ -108,6 +115,15 @@ public:
     String newId = extractJsonString_(resp, "id_token");
     String newRef = extractJsonString_(resp, "refresh_token");
     String exp = extractJsonString_(resp, "expires_in");
+
+    if (newId.length() == 0 || newRef.length() == 0) {
+      String preview = resp.substring(0, 120);
+      preview.replace('\n', ' ');
+      preview.replace('\r', ' ');
+      logHeapDiag_("token_refresh_parse_error");
+      LOGE("Token refresh parse error len=%u resp=%s", (unsigned)resp.length(), preview.c_str());
+      return false;
+    }
 
     if (newId.length()) idToken_ = newId;
     if (newRef.length()) refreshToken_ = newRef;
@@ -147,6 +163,7 @@ public:
     String resp;
     int code = httpsPostJson_(url, json, resp, /*auth*/nullptr);
     if (code != 200) {
+      logHeapDiag_("firebase_push_batch_failed");
       LOGE("Firebase pushBatch failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
@@ -200,6 +217,7 @@ public:
     String resp;
     int code = httpsSendJson_(url, "PUT", json, resp);
     if (code != 200) {
+      logHeapDiag_("firebase_put_status_failed");
       LOGE("Firebase putStatus failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
@@ -380,6 +398,12 @@ public:
   }
 
 private:
+  void logHeapDiag_(const char* tag) {
+    LOGW("Heap diag %s free=%u largest=%u", tag,
+         (unsigned)ESP.getFreeHeap(),
+         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  }
+
   int httpsPostJson_(const String& url, const String& payload, String& outResp, const char* /*unused*/) {
     return httpsSendJson_(url, "POST", payload, outResp);
   }

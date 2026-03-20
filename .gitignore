@@ -11,5 +11,9 @@ build.options.json
 flash_args
 sdkconfig
 
+# tools
+tools/
+*.txt
+
 # system
 .DS_Store

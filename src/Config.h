@@ -43,10 +43,12 @@ static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30UL * 1000UL;
 static const uint32_t WIFI_RECONNECT_TIMEOUT_MS = 8000UL;
 static const uint32_t RECONNECT_INTERVAL_MS = 60UL * 1000UL;
 static const uint32_t STATUS_INTERVAL_MS = 5UL * 60UL * 1000UL;
+static const uint32_t MAINTENANCE_FAILURE_RETRY_MS = 30UL * 1000UL;
 static const uint32_t OTA_RETRY_INTERVAL_MS = 5UL * 60UL * 1000UL;
 static const uint32_t AP_TIMEOUT_MS = 5UL * 60UL * 1000UL;
 static const uint32_t AUTO_REBOOT_GRACE_MS = 90UL * 1000UL;
 static const uint8_t MAINTENANCE_FAILURE_RESET_THRESHOLD = 3;
+static const uint8_t MAINTENANCE_LOGIN_FAILURE_RESTART_THRESHOLD = 1;
 
 static const char* AP_SSID = "BikeSense-Gateway";
 static const char* AP_PASS = "bikesense123";
