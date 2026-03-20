@@ -670,6 +670,7 @@ void setup() {
   bool wifiOk = false;
   if (wifiCfg.hasSavedWiFi()) {
     wifiOk = wifiCfg.connectSaved(WIFI_CONNECT_TIMEOUT_MS);
+    if (wifiOk) lastWifiReconnectResult = "boot_ok";
   }
 
   if (!wifiOk) {
@@ -682,6 +683,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     TimeSync::begin();
     timeSynced = TimeSync::waitForSync(10000);
+    if (wifiOk) lastWifiReconnectTs = TimeSync::nowUtc();
   }
 
 #if FIREBASE_LOGIN_BEFORE_BLE
