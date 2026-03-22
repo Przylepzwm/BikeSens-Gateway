@@ -200,8 +200,12 @@ static void maybeRunScheduledReboot() {
   uint32_t nowUtc = TimeSync::nowUtc();
   if (nowUtc == 0) return;
 
-  uint32_t day = nowUtc / 86400UL;
-  uint16_t minuteOfDay = (uint16_t)((nowUtc % 86400UL) / 60UL);
+  time_t now = (time_t)nowUtc;
+  struct tm localTm;
+  if (!localtime_r(&now, &localTm)) return;
+
+  uint32_t day = (uint32_t)localTm.tm_yday;
+  uint16_t minuteOfDay = (uint16_t)(localTm.tm_hour * 60 + localTm.tm_min);
 
   if (day == lastAutoRebootDay && minuteOfDay == (uint16_t)lastAutoRebootMinute) return;
 
@@ -332,7 +336,7 @@ static void tryRunOtaIfAllowed() {
     lastError = "ota_empty_version";
     return;
   }
-  if (currentUpdateVersion == FW_VERSION) return;
+  if (!currentUpdateForce && currentUpdateVersion == FW_VERSION) return;
   if (!hasHttpScheme(currentUpdateUrl)) {
     LOGE("OTA skipped: invalid url=%s", currentUpdateUrl.c_str());
     lastError = "ota_invalid_url";
@@ -421,7 +425,7 @@ static bool pollUpdateControl() {
     return false;
   }
 
-  if (ctrl.pending && ctrl.version == FW_VERSION) {
+  if (ctrl.pending && !ctrl.force && ctrl.version == FW_VERSION) {
     LOGI("OTA already applied version=%s -> clear pending", ctrl.version.c_str());
     if (!fb.clearUpdatePending(wifiCfg.gatewayId())) {
       lastError = "update_pending_clear_failed";

@@ -7,7 +7,7 @@
 class TimeSync {
 public:
   static void begin() {
-    configTime(GMT_OFFSET_SEC, DST_OFFSET_SEC, NTP_SERVER);
+    configTzTime(TIMEZONE_TZ, NTP_SERVER);
   }
 
   static bool waitForSync(uint32_t timeoutMs=10000) {

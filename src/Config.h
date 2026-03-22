@@ -6,7 +6,7 @@
 
 // -------- Identity --------
 static const char* DEFAULT_GATEWAY_ID = "gw01";
-static const char* FW_VERSION = "1.0.6";
+static const char* FW_VERSION = "1.0.8";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git
@@ -56,7 +56,7 @@ static const char* AP_PASS = "bikesense123";
 // -------- Dedup cache --------
 static constexpr uint16_t RECENT_KEYS_MAX = 512; // must be power-of-two? (no, but keep >= 256)
 static constexpr uint16_t MAX_SELECTED_DEVICES = 32;
-static constexpr uint16_t MAX_REBOOT_SLOTS = 8;
+static constexpr uint16_t MAX_REBOOT_SLOTS = 12;
 
 // -------- Logging --------
 #define LOG_ENABLED 1
@@ -73,6 +73,7 @@ static constexpr uint16_t MAX_REBOOT_SLOTS = 8;
 #define GATEWAY_RADIO_MODE RADIO_MODE_BLE_WIFI
 
 // -------- Time --------
+static const char* TIMEZONE_TZ = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 static const long GMT_OFFSET_SEC = 0;
 static const int  DST_OFFSET_SEC = 0;
 static const char* NTP_SERVER = "pool.ntp.org";

@@ -361,28 +361,41 @@ public:
     int timesPos = resp.indexOf("\"times\":");
     if (timesPos < 0) return true;
 
-    int braceStart = resp.indexOf('{', timesPos);
-    if (braceStart < 0) return true;
+    int startPos = timesPos + 8; // strlen("\"times\":")
+    while (startPos < (int)resp.length() && (resp[startPos] == ' ' || resp[startPos] == '\n' || resp[startPos] == '\r' || resp[startPos] == '\t')) {
+      startPos++;
+    }
+    if (startPos >= (int)resp.length()) return true;
 
-    int braceEnd = findMatchingBrace_(resp, braceStart);
-    if (braceEnd < 0) return true;
+    char opener = resp[startPos];
+    int endPos = -1;
+    if (opener == '{') {
+      endPos = findMatchingBrace_(resp, startPos);
+    } else if (opener == '[') {
+      endPos = findMatchingBracket_(resp, startPos);
+    } else {
+      return true;
+    }
+    if (endPos < 0) return true;
 
-    int pos = braceStart + 1;
-    while (pos < braceEnd && out.count < MAX_REBOOT_SLOTS) {
-      int valueQuote1 = resp.indexOf('"', pos);
-      if (valueQuote1 < 0 || valueQuote1 >= braceEnd) break;
-      int valueQuote2 = resp.indexOf('"', valueQuote1 + 1);
-      if (valueQuote2 < 0 || valueQuote2 >= braceEnd) break;
+    String timesJson = resp.substring(startPos, endPos + 1);
 
-      String timeStr = resp.substring(valueQuote1 + 1, valueQuote2);
-      if (timeStr.length() == 5 && timeStr[2] == ':') {
-        int hour = timeStr.substring(0, 2).toInt();
-        int minute = timeStr.substring(3, 5).toInt();
+    int pos = 0;
+    while (pos < (int)timesJson.length() && out.count < MAX_REBOOT_SLOTS) {
+      int q1 = timesJson.indexOf('"', pos);
+      if (q1 < 0) break;
+      int q2 = timesJson.indexOf('"', q1 + 1);
+      if (q2 < 0) break;
+
+      String token = timesJson.substring(q1 + 1, q2);
+      if (token.length() == 5 && token[2] == ':') {
+        int hour = token.substring(0, 2).toInt();
+        int minute = token.substring(3, 5).toInt();
         if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
           out.rebootMinutes[out.count++] = (uint16_t)(hour * 60 + minute);
         }
       }
-      pos = valueQuote2 + 1;
+      pos = q2 + 1;
     }
 
     for (uint16_t i = 1; i < out.count; i++) {
@@ -459,6 +472,18 @@ private:
     for (int i = openPos; i < (int)json.length(); i++) {
       if (json[i] == '{') depth++;
       else if (json[i] == '}') {
+        depth--;
+        if (depth == 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  int findMatchingBracket_(const String& json, int openPos) {
+    int depth = 0;
+    for (int i = openPos; i < (int)json.length(); i++) {
+      if (json[i] == '[') depth++;
+      else if (json[i] == ']') {
         depth--;
         if (depth == 0) return i;
       }

@@ -14,6 +14,8 @@ sdkconfig
 # tools
 tools/
 *.txt
+*.py
+*.sh
 
 # system
 .DS_Store
