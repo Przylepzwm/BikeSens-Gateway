@@ -228,7 +228,7 @@ public:
     if (!ensureTokenValid()) return false;
 
     String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/control/update.json?auth=" + idToken_;
-    String json = "{\"pending\":false}";
+    String json = "{\"pending\":false,\"force\":false}";
 
     String resp;
     int code = httpsSendJson_(url, "PATCH", json, resp);
