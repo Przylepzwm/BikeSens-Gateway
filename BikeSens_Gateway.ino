@@ -217,7 +217,7 @@ static void maybeRunScheduledReboot() {
     lastError = "scheduled_reboot";
     LOGW("Scheduled reboot at minute=%u", minuteOfDay);
     ble.stop();
-    delay(300);
+    delay(1000);
     ESP.restart();
     return;
   }
