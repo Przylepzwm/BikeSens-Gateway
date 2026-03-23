@@ -6,7 +6,7 @@
 
 // -------- Identity --------
 static const char* DEFAULT_GATEWAY_ID = "gw01";
-static const char* FW_VERSION = "1.0.9";
+static const char* FW_VERSION = "1.1.0";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git
@@ -47,6 +47,7 @@ static const uint32_t MAINTENANCE_FAILURE_RETRY_MS = 30UL * 1000UL;
 static const uint32_t OTA_RETRY_INTERVAL_MS = 5UL * 60UL * 1000UL;
 static const uint32_t AP_TIMEOUT_MS = 5UL * 60UL * 1000UL;
 static const uint32_t AUTO_REBOOT_GRACE_MS = 90UL * 1000UL;
+static const uint32_t SCHEDULED_REBOOT_FLUSH_MS = 10UL * 1000UL;
 static const uint8_t MAINTENANCE_FAILURE_RESET_THRESHOLD = 3;
 static const uint8_t MAINTENANCE_LOGIN_FAILURE_RESTART_THRESHOLD = 1;
 

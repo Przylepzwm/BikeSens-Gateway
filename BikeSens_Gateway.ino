@@ -217,6 +217,28 @@ static void maybeRunScheduledReboot() {
     lastError = "scheduled_reboot";
     LOGW("Scheduled reboot at minute=%u", minuteOfDay);
     ble.stop();
+    if (WiFi.status() == WL_CONNECTED && !buffer.empty()) {
+      uint32_t deadlineMs = millis() + SCHEDULED_REBOOT_FLUSH_MS;
+      LOGW("Scheduled reboot flush start buf=%u timeout=%lu ms",
+           buffer.size(), (unsigned long)SCHEDULED_REBOOT_FLUSH_MS);
+      while (!buffer.empty() && (int32_t)(millis() - deadlineMs) < 0) {
+        BleRecord items[BATCH_SIZE];
+        uint16_t cnt = buffer.popFront(items, BATCH_SIZE);
+        if (cnt == 0) break;
+
+        uint32_t ts = TimeSync::nowUtc();
+        bool ok = fb.pushBatch(wifiCfg.gatewayId(), ts, items, cnt);
+        if (!ok) {
+          LOGW("Scheduled reboot flush failed; re-queue=%u remain=%u", cnt, buffer.size());
+          for (uint16_t j = 0; j < cnt; j++) buffer.push(items[j]);
+          break;
+        }
+        lastBatchCount = cnt;
+        lastBatchTs = ts;
+        LOGI("Scheduled reboot flush batch OK count=%u remain=%u", cnt, buffer.size());
+      }
+      LOGW("Scheduled reboot flush end buf=%u", buffer.size());
+    }
     delay(1000);
     ESP.restart();
     return;
