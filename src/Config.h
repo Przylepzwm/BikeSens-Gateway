@@ -6,7 +6,7 @@
 
 // -------- Identity --------
 static const char* DEFAULT_GATEWAY_ID = "gw01";
-static const char* FW_VERSION = "1.1.0";
+static const char* FW_VERSION = "1.1.1";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git

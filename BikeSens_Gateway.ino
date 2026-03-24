@@ -235,6 +235,7 @@ static void maybeRunScheduledReboot() {
         }
         lastBatchCount = cnt;
         lastBatchTs = ts;
+        fb.patchBatchStatus(wifiCfg.gatewayId(), lastBatchCount, lastBatchTs);
         LOGI("Scheduled reboot flush batch OK count=%u remain=%u", cnt, buffer.size());
       }
       LOGW("Scheduled reboot flush end buf=%u", buffer.size());
@@ -383,6 +384,12 @@ static void tryRunOtaIfAllowed() {
     lastOtaVersion = currentUpdateVersion;
     lastOtaResult = "success";
     lastError = "";
+    fb.patchOtaStatus(
+      wifiCfg.gatewayId(),
+      lastOtaTs,
+      lastOtaVersion.c_str(),
+      lastOtaResult.c_str()
+    );
     fb.putStatus(
       wifiCfg.gatewayId(),
       lastOtaTs,
@@ -390,11 +397,6 @@ static void tryRunOtaIfAllowed() {
       FW_VERSION,
       WiFi.localIP().toString().c_str(),
       WiFi.RSSI(),
-      lastBatchCount,
-      lastBatchTs,
-      lastOtaTs,
-      lastOtaVersion.c_str(),
-      lastOtaResult.c_str(),
       lastWifiReconnectTs,
       lastWifiReconnectResult.c_str(),
       bootResetReason,
@@ -414,6 +416,12 @@ static void tryRunOtaIfAllowed() {
   lastOtaTs = TimeSync::nowUtc();
   lastOtaVersion = currentUpdateVersion;
   lastOtaResult = "failed";
+  fb.patchOtaStatus(
+    wifiCfg.gatewayId(),
+    lastOtaTs,
+    lastOtaVersion.c_str(),
+    lastOtaResult.c_str()
+  );
   fb.putStatus(
     wifiCfg.gatewayId(),
     lastOtaTs,
@@ -421,11 +429,6 @@ static void tryRunOtaIfAllowed() {
     FW_VERSION,
     WiFi.localIP().toString().c_str(),
     WiFi.RSSI(),
-    lastBatchCount,
-    lastBatchTs,
-    lastOtaTs,
-    lastOtaVersion.c_str(),
-    lastOtaResult.c_str(),
     lastWifiReconnectTs,
     lastWifiReconnectResult.c_str(),
     bootResetReason,
@@ -527,11 +530,6 @@ static bool syncFirebaseMaintenance(bool force) {
     FW_VERSION,
     ip.c_str(),
     WiFi.RSSI(),
-    lastBatchCount,
-    lastBatchTs,
-    lastOtaTs,
-    lastOtaVersion.c_str(),
-    lastOtaResult.c_str(),
     lastWifiReconnectTs,
     lastWifiReconnectResult.c_str(),
     bootResetReason,
@@ -627,6 +625,7 @@ static void trySendIfNeeded() {
     if (lastError == "firebase_batch_failed") lastError = "";
     lastBatchCount = cnt;
     lastBatchTs = ts;
+    fb.patchBatchStatus(wifiCfg.gatewayId(), lastBatchCount, lastBatchTs);
     syncFirebaseMaintenance(true);
   } else {
     // On failure: push back? (would require shifting). Simpler: re-add to buffer end (still no loss, order might change).

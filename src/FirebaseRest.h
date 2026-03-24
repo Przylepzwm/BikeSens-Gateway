@@ -176,11 +176,6 @@ public:
                  const char* fwVersion,
                  const char* ip,
                  int32_t wifiRssi,
-                 uint16_t lastBatchCount,
-                 uint32_t lastBatchTs,
-                 uint32_t lastOtaTs,
-                 const char* lastOtaVersion,
-                 const char* lastOtaResult,
                  uint32_t lastWifiReconnectTs,
                  const char* lastWifiReconnectResult,
                  int32_t resetReason,
@@ -199,11 +194,6 @@ public:
     json += "\"fw_version\":\"" + String(fwVersion) + "\",";
     json += "\"ip\":\"" + String(ip) + "\",";
     json += "\"wifi_rssi\":" + String(wifiRssi) + ",";
-    json += "\"last_batch_count\":" + String(lastBatchCount) + ",";
-    json += "\"last_batch_ts\":" + String(lastBatchTs) + ",";
-    json += "\"last_ota_ts\":" + String(lastOtaTs) + ",";
-    json += "\"last_ota_version\":\"" + String(lastOtaVersion) + "\",";
-    json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\",";
     json += "\"last_wifi_reconnect_ts\":" + String(lastWifiReconnectTs) + ",";
     json += "\"last_wifi_reconnect_result\":\"" + String(lastWifiReconnectResult) + "\",";
     json += "\"reset_reason\":" + String(resetReason) + ",";
@@ -219,6 +209,46 @@ public:
     if (code != 200) {
       logHeapDiag_("firebase_put_status_failed");
       LOGE("Firebase putStatus failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  bool patchBatchStatus(const char* gatewayId, uint16_t lastBatchCount, uint32_t lastBatchTs) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/status.json?auth=" + idToken_;
+    String json = "{";
+    json += "\"last_batch_count\":" + String(lastBatchCount) + ",";
+    json += "\"last_batch_ts\":" + String(lastBatchTs);
+    json += "}";
+
+    String resp;
+    int code = httpsSendJson_(url, "PATCH", json, resp);
+    if (code != 200) {
+      LOGE("Firebase patchBatchStatus failed: http=%d resp=%s", code, resp.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  bool patchOtaStatus(const char* gatewayId,
+                      uint32_t lastOtaTs,
+                      const char* lastOtaVersion,
+                      const char* lastOtaResult) {
+    if (!ensureTokenValid()) return false;
+
+    String url = String(FIREBASE_DB_URL) + "/gateways/" + gatewayId + "/status.json?auth=" + idToken_;
+    String json = "{";
+    json += "\"last_ota_ts\":" + String(lastOtaTs) + ",";
+    json += "\"last_ota_version\":\"" + String(lastOtaVersion) + "\",";
+    json += "\"last_ota_result\":\"" + String(lastOtaResult) + "\"";
+    json += "}";
+
+    String resp;
+    int code = httpsSendJson_(url, "PATCH", json, resp);
+    if (code != 200) {
+      LOGE("Firebase patchOtaStatus failed: http=%d resp=%s", code, resp.c_str());
       return false;
     }
     return true;
