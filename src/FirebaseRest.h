@@ -27,6 +27,7 @@ public:
     bool autoRebootEnabled{false};
     uint16_t rebootMinutes[MAX_REBOOT_SLOTS];
     uint16_t count{0};
+    uint16_t batchSendThreshold{BATCH_SIZE};
   };
 
   void begin() {
@@ -386,6 +387,12 @@ public:
     }
 
     out.autoRebootEnabled = extractJsonBool_(resp, "auto_reboot_enabled");
+    uint32_t threshold = extractJsonUInt_(resp, "batch_send_threshold");
+    if (threshold >= 1 && threshold <= BATCH_SIZE) {
+      out.batchSendThreshold = (uint16_t)threshold;
+    } else {
+      out.batchSendThreshold = BATCH_SIZE;
+    }
     out.count = 0;
 
     int timesPos = resp.indexOf("\"times\":");
@@ -495,6 +502,11 @@ private:
     while (pos < (int)json.length() && (json[pos] == ' ')) pos++;
     if (pos >= (int)json.length()) return false;
     return json.startsWith("true", pos);
+  }
+
+  uint32_t extractJsonUInt_(const String& json, const char* key) {
+    String value = extractJsonString_(json, key);
+    return value.length() ? (uint32_t)value.toInt() : 0;
   }
 
   int findMatchingBrace_(const String& json, int openPos) {

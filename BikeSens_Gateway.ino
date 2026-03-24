@@ -54,6 +54,7 @@ static uint32_t apStartedMs = 0;
 static bool autoRebootEnabled = false;
 static uint16_t autoRebootMinutes[MAX_REBOOT_SLOTS];
 static uint16_t autoRebootCount = 0;
+static uint16_t batchSendThreshold = BATCH_SIZE;
 static uint32_t lastAutoRebootDay = 0;
 static int16_t lastAutoRebootMinute = -1;
 
@@ -168,6 +169,7 @@ static void loadDeviceFilterConfig() {
 static void loadMaintenanceConfig() {
   autoRebootEnabled = false;
   autoRebootCount = 0;
+  batchSendThreshold = BATCH_SIZE;
 
   if (WiFi.status() != WL_CONNECTED) {
     lastError = "maintenance_wifi_unavailable";
@@ -182,14 +184,16 @@ static void loadMaintenanceConfig() {
 
   autoRebootEnabled = cfg.autoRebootEnabled;
   autoRebootCount = cfg.count;
+  batchSendThreshold = cfg.batchSendThreshold;
   for (uint16_t i = 0; i < cfg.count; i++) {
     autoRebootMinutes[i] = cfg.rebootMinutes[i];
   }
 
   if (autoRebootEnabled) {
-    LOGI("Maintenance: auto_reboot enabled count=%u", autoRebootCount);
+    LOGI("Maintenance: auto_reboot enabled count=%u batch_threshold=%u",
+         autoRebootCount, batchSendThreshold);
   } else {
-    LOGI("Maintenance: auto_reboot disabled");
+    LOGI("Maintenance: auto_reboot disabled batch_threshold=%u", batchSendThreshold);
   }
 }
 
@@ -589,7 +593,7 @@ static void trySendIfNeeded() {
 
   uint32_t now = millis();
   bool idle = (now - lastRxMs) >= IDLE_TIMEOUT_MS;
-  bool enough = buffer.size() >= BATCH_SIZE;
+  bool enough = buffer.size() >= batchSendThreshold;
 
   if (!idle && !enough) return;
 

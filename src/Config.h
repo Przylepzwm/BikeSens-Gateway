@@ -6,7 +6,7 @@
 
 // -------- Identity --------
 static const char* DEFAULT_GATEWAY_ID = "gw01";
-static const char* FW_VERSION = "1.1.1";
+static const char* FW_VERSION = "1.1.2";
 
 // -------- Firebase --------
 #include "LoginData.h" //ignore git
@@ -33,7 +33,7 @@ static const char* FW_VERSION = "1.1.1";
 
 // -------- Buffer & batching --------
 static const uint16_t BUFFER_MAX = 400;
-static const uint16_t BATCH_SIZE = 20; // target: 30
+static const uint16_t BATCH_SIZE = 20; // max batch payload size
 
 // Send when no new data for this time (ms)
 static const uint32_t IDLE_TIMEOUT_MS = 5UL * 60UL * 1000UL;
