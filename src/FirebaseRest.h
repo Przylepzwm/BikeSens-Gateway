@@ -156,7 +156,8 @@ public:
       json += "\"device_id\":" + String(items[i].device_id) + ",";
       json += "\"seq\":" + String(items[i].seq) + ",";
       json += "\"pulses\":" + String(items[i].pulses) + ",";
-      json += "\"bat\":" + String(items[i].bat);
+      json += "\"bat\":" + String(items[i].bat) + ",";
+      json += "\"ble_rssi\":" + String(items[i].rssi);
       json += "}";
     }
     json += "]}";
@@ -206,7 +207,7 @@ public:
     json += "}";
 
     String resp;
-    int code = httpsSendJson_(url, "PUT", json, resp);
+    int code = httpsSendJson_(url, "PATCH", json, resp);
     if (code != 200) {
       logHeapDiag_("firebase_put_status_failed");
       LOGE("Firebase putStatus failed: http=%d resp=%s", code, resp.c_str());
